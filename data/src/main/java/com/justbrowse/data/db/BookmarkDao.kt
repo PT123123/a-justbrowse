@@ -29,6 +29,9 @@ interface BookmarkDao {
     @Query("DELETE FROM bookmarks WHERE id = :id")
     suspend fun delete(id: String)
 
+    @Query("DELETE FROM bookmarks WHERE url = :url")
+    suspend fun deleteByUrl(url: String)
+
     @Query("SELECT COUNT(*) FROM bookmarks")
     suspend fun count(): Int
 }

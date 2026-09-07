@@ -25,6 +25,8 @@ class BookmarkRepositoryImpl @Inject constructor(
 
     override suspend fun delete(id: String) = bookmarkDao.delete(id)
 
+    override suspend fun deleteByUrl(url: String) = bookmarkDao.deleteByUrl(url)
+
     override suspend fun existsByUrl(url: String): Boolean =
         bookmarkDao.countByUrl(url) > 0
 
