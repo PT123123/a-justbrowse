@@ -47,6 +47,8 @@ fun BrowserScreen(
     val state by viewModel.uiState.collectAsState()
     val suggestions by viewModel.suggestions.collectAsState()
     val showSuggestions by viewModel.showSuggestions.collectAsState()
+    val isBookmarked by viewModel.isBookmarked.collectAsState()
+    val searchEngine by viewModel.searchEngine.collectAsState()
 
     LaunchedEffect(viewModel) {
         viewModel.onDarkModeToggled = { enabled ->
@@ -75,11 +77,7 @@ fun BrowserScreen(
                     IconButton(onClick = { viewModel.showFindInPage() }) {
                         Icon(Icons.Default.Search, contentDescription = "Find in page")
                     }
-                    IconButton(
-                        onClick = {
-                            viewModel.onToggleDarkMode()
-                        }
-                    ) {
+                    IconButton(onClick = { viewModel.onToggleDarkMode() }) {
                         Icon(
                             if (viewModel.forceDarkMode) Icons.Default.DarkMode else Icons.Default.LightMode,
                             contentDescription = "Toggle dark mode",
@@ -167,13 +165,19 @@ fun BrowserScreen(
                 isLoading = state.isLoading,
                 suggestions = suggestions,
                 showSuggestions = showSuggestions,
+                isBookmarked = isBookmarked,
+                searchEngine = searchEngine,
                 onUrlChange = viewModel::updateAddressBar,
                 onSubmit = viewModel::submitAddressBar,
                 onSuggestionClick = viewModel::onSuggestionClick,
                 onDismissSuggestions = viewModel::hideSuggestions,
                 onBack = viewModel::goBack,
                 onForward = viewModel::goForward,
-                onReload = viewModel::reload
+                onReload = viewModel::reload,
+                onHome = viewModel::goHome,
+                onToggleBookmark = viewModel::toggleBookmark,
+                onSearchEngineChange = viewModel::setSearchEngine,
+                onClearHistory = viewModel::clearHistory
             )
 
             if (state.showFindInPage) {
