@@ -15,7 +15,7 @@ object DarkModeInjector {
      * 注入暗色样式（同步，立即生效）。
      */
     fun inject(target: com.justbrowse.core.scripts.ScriptInjectTarget) {
-        val js = "(function(){if(document.getElementById('jb-dark'))return;var s=document.createElement('style');s.id='jb-dark';s.textContent='html{filter:invert(1) hue-rotate(180deg) !important;background:#121212 !important;}img,video,canvas,svg{filter:invert(1) hue-rotate(180deg) !important;}';(document.documentElement||document.body).appendChild(s);})();"
+        val js = "(function(){if(document.getElementById('jb-dark'))return;var s=document.createElement('style');s.id='jb-dark';s.textContent='html{filter:invert(1) hue-rotate(180deg) !important;background:#121212 !important;}body{background:#121212 !important;}img,video,canvas,svg{filter:invert(1) hue-rotate(180deg) !important;}';(document.documentElement||document.body).appendChild(s);})();"
         target.evaluateJavascript(js) { res -> Log.d(TAG, "injected: $res") }
     }
 
