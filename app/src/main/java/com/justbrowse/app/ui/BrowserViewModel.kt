@@ -99,6 +99,9 @@ class BrowserViewModel @Inject constructor(
     private val _isBookmarked = MutableStateFlow(false)
     val isBookmarked: StateFlow<Boolean> = _isBookmarked.asStateFlow()
 
+    private val _isReadingMode = MutableStateFlow(false)
+    val isReadingMode: StateFlow<Boolean> = _isReadingMode.asStateFlow()
+
     val searchEngine: StateFlow<SearchEngine> = settingsDataStore.settings
         .map { it.searchEngine }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SearchEngine.GOOGLE)
@@ -194,6 +197,10 @@ class BrowserViewModel @Inject constructor(
 
     fun goHome() {
         tabManager.getActiveEngine()?.loadUrl("about:blank")
+    }
+
+    fun toggleReadingMode() {
+        _isReadingMode.value = !_isReadingMode.value
     }
 
     fun toggleBookmark() {
