@@ -20,18 +20,19 @@ import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -43,11 +44,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.justbrowse.data.prefs.SearchEngine
+import com.justbrowse.data.suggestions.DefaultSites
+import com.justbrowse.data.suggestions.SuggestedSite
 import com.justbrowse.domain.model.HistoryEntry
 
 @Composable
@@ -79,7 +83,13 @@ fun AddressBar(
     var isEditing by remember { mutableStateOf(false) }
     var isFocused by remember { mutableStateOf(false) }
     var showSearchEngineMenu by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
+    val configuration = LocalConfiguration.current
+    val isTablet = configuration.screenWidthDp >= 600
+
+    // Default sites shown when no history matches
+    val defaultSites = DefaultSites.search(editingUrl.ifEmpty { url }, 4)
 
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
@@ -97,8 +107,10 @@ fun AddressBar(
             IconButton(onClick = onReload) {
                 Icon(Icons.Default.Refresh, contentDescription = "Reload")
             }
-            IconButton(onClick = onHome) {
-                Icon(Icons.Default.Home, contentDescription = "Home")
+            if (isTablet) {
+                IconButton(onClick = onHome) {
+                    Icon(Icons.Default.Home, contentDescription = "Home")
+                }
             }
 
             Box(modifier = Modifier.weight(1f)) {
@@ -163,35 +175,92 @@ fun AddressBar(
                                     Icon(Icons.Default.Clear, contentDescription = "Clear")
                                 }
                             } else {
-                                Box {
-                                    IconButton(onClick = { showSearchEngineMenu = true }) {
-                                        Icon(
-                                            Icons.Default.Search,
-                                            contentDescription = searchEngine.label,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                    DropdownMenu(
-                                        expanded = showSearchEngineMenu,
-                                        onDismissRequest = { showSearchEngineMenu = false }
-                                    ) {
-                                        SearchEngine.entries.forEach { engine ->
-                                            DropdownMenuItem(
-                                                text = { Text(engine.label) },
-                                                onClick = {
-                                                    onSearchEngineChange(engine)
-                                                    showSearchEngineMenu = false
-                                                }
+                                if (isTablet) {
+                                    Box {
+                                        IconButton(onClick = { showSearchEngineMenu = true }) {
+                                            Icon(
+                                                Icons.Default.Search,
+                                                contentDescription = searchEngine.label,
+                                                modifier = Modifier.size(20.dp)
                                             )
                                         }
+                                        DropdownMenu(
+                                            expanded = showSearchEngineMenu,
+                                            onDismissRequest = { showSearchEngineMenu = false }
+                                        ) {
+                                            SearchEngine.entries.forEach { engine ->
+                                                DropdownMenuItem(
+                                                    text = { Text(engine.label) },
+                                                    onClick = {
+                                                        onSearchEngineChange(engine)
+                                                        showSearchEngineMenu = false
+                                                    }
+                                                )
+                                            }
+                                        }
                                     }
-                                }
-                                IconButton(onClick = onToggleBookmark) {
-                                    Icon(
-                                        if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                        contentDescription = if (isBookmarked) "Remove bookmark" else "Add bookmark",
-                                        tint = if (isBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    IconButton(onClick = onToggleBookmark) {
+                                        Icon(
+                                            if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                            contentDescription = if (isBookmarked) "Remove bookmark" else "Add bookmark",
+                                            tint = if (isBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                } else {
+                                    Box {
+                                        IconButton(onClick = { showMoreMenu = true }) {
+                                            Icon(Icons.Default.Menu, contentDescription = "More")
+                                        }
+                                        DropdownMenu(
+                                            expanded = showMoreMenu,
+                                            onDismissRequest = { showMoreMenu = false }
+                                        ) {
+                                            DropdownMenuItem(
+                                                text = { Text("Home") },
+                                                leadingIcon = { Icon(Icons.Default.Home, contentDescription = null) },
+                                                onClick = {
+                                                    showMoreMenu = false
+                                                    onHome()
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Text(
+                                                        if (isBookmarked) "Remove bookmark" else "Add bookmark"
+                                                    )
+                                                },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                                        contentDescription = null
+                                                    )
+                                                },
+                                                onClick = {
+                                                    showMoreMenu = false
+                                                    onToggleBookmark()
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Search engine") },
+                                                leadingIcon = { Icon(Icons.Default.Language, contentDescription = null) },
+                                                onClick = {
+                                                    showMoreMenu = false
+                                                    showSearchEngineMenu = true
+                                                }
+                                            )
+                                            if (showSearchEngineMenu) {
+                                                SearchEngine.entries.forEach { engine ->
+                                                    DropdownMenuItem(
+                                                        text = { Text(engine.label) },
+                                                        onClick = {
+                                                            onSearchEngineChange(engine)
+                                                            showSearchEngineMenu = false
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -211,15 +280,27 @@ fun AddressBar(
                     ) {
                         LazyColumn {
                             items(suggestions, key = { it.id }) { entry ->
-                                SuggestionItem(
+                                SuggestionHistoryItem(
                                     entry = entry,
-                                    query = if (isEditing) editingUrl else url,
                                     onClick = {
                                         onSuggestionClick(entry.url)
                                         isEditing = false
                                         focusManager.clearFocus()
                                     }
                                 )
+                            }
+                            // Show default sites when no history matches
+                            if (suggestions.isEmpty() && isFocused && editingUrl.length >= 2) {
+                                items(defaultSites, key = { it.url }) { site ->
+                                    SuggestionSiteItem(
+                                        site = site,
+                                        onClick = {
+                                            onSuggestionClick(site.url)
+                                            isEditing = false
+                                            focusManager.clearFocus()
+                                        }
+                                    )
+                                }
                             }
                             item {
                                 SuggestionFooter(
@@ -246,9 +327,8 @@ fun AddressBar(
 }
 
 @Composable
-private fun SuggestionItem(
+private fun SuggestionHistoryItem(
     entry: HistoryEntry,
-    query: String,
     onClick: () -> Unit
 ) {
     Row(
@@ -284,6 +364,42 @@ private fun SuggestionItem(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+@Composable
+private fun SuggestionSiteItem(
+    site: SuggestedSite,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            Icons.Default.Language,
+            contentDescription = null,
+            modifier = Modifier.padding(end = 12.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = site.title,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = site.url,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
