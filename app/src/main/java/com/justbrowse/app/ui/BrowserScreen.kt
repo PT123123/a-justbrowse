@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ViewWeek
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,7 +43,10 @@ fun BrowserScreen(
     onNavigateToBookmarks: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onNavigateToScripts: () -> Unit = {},
-    onNavigateToDownloads: () -> Unit = {}
+    onNavigateToDownloads: () -> Unit = {},
+    onNavigateToTabOverview: () -> Unit = {},
+    onNavigateToPermissions: () -> Unit = {},
+    onNavigateToAdRules: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
     val suggestions by viewModel.suggestions.collectAsState()
@@ -84,6 +88,13 @@ fun BrowserScreen(
                             tint = if (viewModel.forceDarkMode) MaterialTheme.colorScheme.primary else LocalContentColor.current
                         )
                     }
+                    IconButton(onClick = { viewModel.toggleReadingMode() }) {
+                        Icon(
+                            Icons.Default.ViewWeek,
+                            contentDescription = "Reading mode",
+                            tint = if (viewModel.isReadingMode.value) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                        )
+                    }
                     IconButton(onClick = onNavigateToBookmarks) {
                         Icon(Icons.Default.Bookmark, contentDescription = "Bookmarks")
                     }
@@ -99,6 +110,13 @@ fun BrowserScreen(
                             onClick = {
                                 showMenu = false
                                 viewModel.openNewTab("about:blank")
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Tab Overview") },
+                            onClick = {
+                                showMenu = false
+                                onNavigateToTabOverview()
                             }
                         )
                         DropdownMenuItem(
@@ -130,6 +148,20 @@ fun BrowserScreen(
                             }
                         )
                         DropdownMenuItem(
+                            text = { Text("Permissions") },
+                            onClick = {
+                                showMenu = false
+                                onNavigateToPermissions()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Ad Rules") },
+                            onClick = {
+                                showMenu = false
+                                onNavigateToAdRules()
+                            }
+                        )
+                        DropdownMenuItem(
                             text = { Text("Settings") },
                             onClick = {
                                 showMenu = false
@@ -147,6 +179,7 @@ fun BrowserScreen(
                 onTabClick = viewModel::switchTab,
                 onTabClose = viewModel::closeTab,
                 onNewTab = { viewModel.openNewTab("about:blank") },
+                onOverview = onNavigateToTabOverview,
                 modifier = Modifier.fillMaxWidth()
             )
         }
