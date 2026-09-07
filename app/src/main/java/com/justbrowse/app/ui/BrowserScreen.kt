@@ -45,15 +45,15 @@ fun BrowserScreen(
     onNavigateToDownloads: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
+    val suggestions by viewModel.suggestions.collectAsState()
+    val showSuggestions by viewModel.showSuggestions.collectAsState()
 
-    // 设置暗色模式切换回调（持久化到 DataStore）
     LaunchedEffect(viewModel) {
         viewModel.onDarkModeToggled = { enabled ->
             onForceDarkModeChanged(enabled)
         }
     }
 
-    // 同步暗色模式状态到 ViewModel
     LaunchedEffect(forceDarkMode) {
         if (viewModel.forceDarkMode != forceDarkMode) {
             viewModel.forceDarkMode = forceDarkMode
@@ -77,7 +77,6 @@ fun BrowserScreen(
                     }
                     IconButton(
                         onClick = {
-                            // 触发设置变更，通过 LaunchedEffect 同步到 ViewModel
                             viewModel.onToggleDarkMode()
                         }
                     ) {
@@ -166,14 +165,17 @@ fun BrowserScreen(
                 canGoBack = state.canGoBack,
                 canGoForward = state.canGoForward,
                 isLoading = state.isLoading,
+                suggestions = suggestions,
+                showSuggestions = showSuggestions,
                 onUrlChange = viewModel::updateAddressBar,
                 onSubmit = viewModel::submitAddressBar,
+                onSuggestionClick = viewModel::onSuggestionClick,
+                onDismissSuggestions = viewModel::hideSuggestions,
                 onBack = viewModel::goBack,
                 onForward = viewModel::goForward,
                 onReload = viewModel::reload
             )
 
-            // 页面内查找栏
             if (state.showFindInPage) {
                 FindInPageBar(
                     query = viewModel.findQuery.collectAsState().value,
@@ -182,12 +184,10 @@ fun BrowserScreen(
                 )
             }
 
-            // 当前活跃 tab 的 WebView
             val activeTabId = state.activeTab?.id
             if (activeTabId != null) {
                 val engine = viewModel.getEngine(activeTabId)
                 if (engine != null) {
-                    // 绑定引擎回调
                     LaunchedEffect(engine, activeTabId) {
                         viewModel.bindEngine(engine, activeTabId)
                     }
