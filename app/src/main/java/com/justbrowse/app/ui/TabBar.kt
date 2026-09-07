@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ViewWeek
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -30,6 +31,7 @@ fun TabBar(
     onTabClick: (String) -> Unit,
     onTabClose: (String) -> Unit,
     onNewTab: () -> Unit,
+    onOverview: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -50,6 +52,9 @@ fun TabBar(
         }
         IconButton(onClick = onNewTab) {
             Icon(Icons.Default.Add, contentDescription = "New Tab")
+        }
+        IconButton(onClick = onOverview) {
+            Icon(Icons.Default.ViewWeek, contentDescription = "Tab Overview")
         }
     }
 }
