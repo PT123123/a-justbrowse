@@ -48,8 +48,10 @@ class BrowserEngine(
             field = value
             if (value) {
                 DarkModeInjector.inject(this)
+                webView?.setBackgroundColor(android.graphics.Color.parseColor("#121212"))
             } else {
                 DarkModeInjector.remove(this)
+                webView?.setBackgroundColor(android.graphics.Color.WHITE)
             }
         }
 
@@ -125,6 +127,12 @@ class BrowserEngine(
             }
             webViewClient = JustBrowseWebViewClient()
             webChromeClient = JustBrowseWebChromeClient()
+            // Set background based on dark mode
+            if (forceDarkMode) {
+                setBackgroundColor(android.graphics.Color.parseColor("#121212"))
+            } else {
+                setBackgroundColor(android.graphics.Color.WHITE)
+            }
             // GM 桥挂载
             addJavascriptInterface(scriptInjector.bridge, "GM_Bridge")
             // 下载监听

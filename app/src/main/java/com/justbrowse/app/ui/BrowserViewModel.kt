@@ -18,6 +18,8 @@ import com.justbrowse.domain.model.Bookmark
 import com.justbrowse.domain.model.HistoryEntry
 import com.justbrowse.domain.model.Tab
 import com.justbrowse.domain.repository.BookmarkRepository
+import com.justbrowse.data.suggestions.DefaultSites
+import com.justbrowse.data.suggestions.SuggestedSite
 import com.justbrowse.domain.repository.HistoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -88,7 +90,7 @@ class BrowserViewModel @Inject constructor(
     private val _findQuery = MutableStateFlow("")
     val findQuery: StateFlow<String> = _findQuery.asStateFlow()
 
-    private val _suggestions = MutableStateFlow[List<HistoryEntry>>(emptyList())
+    private val _suggestions = MutableStateFlow<List<HistoryEntry>>(emptyList())
     val suggestions: StateFlow<List<HistoryEntry>> = _suggestions.asStateFlow()
 
     private val _showSuggestions = MutableStateFlow(false)
