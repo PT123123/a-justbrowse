@@ -7,5 +7,6 @@ interface BookmarkRepository {
     fun observeAll(): Flow<List<Bookmark>>
     suspend fun save(bookmark: Bookmark)
     suspend fun delete(id: String)
+    suspend fun deleteByUrl(url: String)
     suspend fun existsByUrl(url: String): Boolean
 }

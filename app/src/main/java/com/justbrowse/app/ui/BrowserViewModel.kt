@@ -12,12 +12,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.justbrowse.core.webview.BrowserEngine
 import com.justbrowse.core.webview.TabManager
+import com.justbrowse.data.prefs.SearchEngine
+import com.justbrowse.data.prefs.SettingsDataStore
+import com.justbrowse.domain.model.Bookmark
 import com.justbrowse.domain.model.HistoryEntry
 import com.justbrowse.domain.model.Tab
+import com.justbrowse.domain.repository.BookmarkRepository
 import com.justbrowse.domain.repository.HistoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,6 +31,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.UUID
 import javax.inject.Inject
 
 data class BrowserUiState(
@@ -45,6 +51,8 @@ data class BrowserUiState(
 class BrowserViewModel @Inject constructor(
     private val tabManager: TabManager,
     private val historyRepository: HistoryRepository,
+    private val bookmarkRepository: BookmarkRepository,
+    private val settingsDataStore: SettingsDataStore,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -80,11 +88,20 @@ class BrowserViewModel @Inject constructor(
     private val _findQuery = MutableStateFlow("")
     val findQuery: StateFlow<String> = _findQuery.asStateFlow()
 
-    private val _suggestions = MutableStateFlow[List<HistoryEntry]](emptyList())
-    val suggestions: StateFlow[List<HistoryEntry>> = _suggestions.asStateFlow()
+    private val _suggestions = MutableStateFlow[List<HistoryEntry>>(emptyList())
+    val suggestions: StateFlow<List<HistoryEntry>> = _suggestions.asStateFlow()
 
     private val _showSuggestions = MutableStateFlow(false)
     val showSuggestions: StateFlow<Boolean> = _showSuggestions.asStateFlow()
+
+    private val _isBookmarked = MutableStateFlow(false)
+    val isBookmarked: StateFlow<Boolean> = _isBookmarked.asStateFlow()
+
+    val searchEngine: StateFlow<SearchEngine> = settingsDataStore.settings
+        .map { it.searchEngine }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SearchEngine.GOOGLE)
+
+    private var currentUrl: String = "about:blank"
 
     init {
         viewModelScope.launch {
@@ -93,6 +110,15 @@ class BrowserViewModel @Inject constructor(
                     _suggestions.value = historyRepository.search(query)
                 } else {
                     _suggestions.value = emptyList()
+                }
+            }
+        }
+        viewModelScope.launch {
+            uiState.collect { state ->
+                val url = state.activeUrl
+                if (url != currentUrl && url != "about:blank") {
+                    currentUrl = url
+                    checkBookmarkStatus(url)
                 }
             }
         }
@@ -160,8 +186,49 @@ class BrowserViewModel @Inject constructor(
         val raw = _addressBarUrl.value.trim()
         if (raw.isEmpty()) return
         _showSuggestions.value = false
-        val url = normalizeUrl(raw)
+        val url = normalizeUrl(raw, searchEngine.value)
         tabManager.getActiveEngine()?.loadUrl(url)
+    }
+
+    fun goHome() {
+        tabManager.getActiveEngine()?.loadUrl("about:blank")
+    }
+
+    fun toggleBookmark() {
+        viewModelScope.launch {
+            val url = currentUrl
+            if (url.isEmpty() || url == "about:blank") return@launch
+            if (_isBookmarked.value) {
+                bookmarkRepository.deleteByUrl(url)
+                _isBookmarked.value = false
+            } else {
+                val title = uiState.value.title.ifEmpty { url }
+                bookmarkRepository.save(
+                    Bookmark(
+                        id = UUID.randomUUID().toString(),
+                        title = title,
+                        url = url,
+                        createdAt = System.currentTimeMillis(),
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+                _isBookmarked.value = true
+            }
+        }
+    }
+
+    private suspend fun checkBookmarkStatus(url: String) {
+        if (url.isEmpty() || url == "about:blank") {
+            _isBookmarked.value = false
+            return
+        }
+        _isBookmarked.value = bookmarkRepository.existsByUrl(url)
+    }
+
+    fun setSearchEngine(engine: SearchEngine) {
+        viewModelScope.launch {
+            settingsDataStore.setSearchEngine(engine)
+        }
     }
 
     fun openNewTab(url: String = "about:blank") {
@@ -209,6 +276,10 @@ class BrowserViewModel @Inject constructor(
         }
     }
 
+    fun clearHistory() {
+        viewModelScope.launch { historyRepository.clearAll() }
+    }
+
     private fun handleDownload(
         url: String,
         userAgent: String,
@@ -229,13 +300,13 @@ class BrowserViewModel @Inject constructor(
         }
     }
 
-    private fun normalizeUrl(raw: String): String {
+    private fun normalizeUrl(raw: String, engine: SearchEngine): String {
         val lower = raw.lowercase()
         return when {
             lower.startsWith("http://") || lower.startsWith("https://") -> raw.lowercase()
             lower.contains("://") -> raw.lowercase()
             lower.contains(".") && !lower.contains(" ") -> "https://$raw"
-            else -> "https://www.google.com/search?q=${java.net.URLEncoder.encode(raw, "UTF-8")}"
+            else -> engine.template.replace("%s", java.net.URLEncoder.encode(raw, "UTF-8"))
         }
     }
 }
