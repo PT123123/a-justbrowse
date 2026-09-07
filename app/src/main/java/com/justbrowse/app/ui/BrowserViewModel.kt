@@ -12,6 +12,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.justbrowse.core.webview.BrowserEngine
 import com.justbrowse.core.webview.TabManager
+import com.justbrowse.domain.model.HistoryEntry
 import com.justbrowse.domain.model.Tab
 import com.justbrowse.domain.repository.HistoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -20,6 +21,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
@@ -77,13 +80,28 @@ class BrowserViewModel @Inject constructor(
     private val _findQuery = MutableStateFlow("")
     val findQuery: StateFlow<String> = _findQuery.asStateFlow()
 
-    /** 当前暗色模式状态 */
+    private val _suggestions = MutableStateFlow[List<HistoryEntry]](emptyList())
+    val suggestions: StateFlow[List<HistoryEntry>> = _suggestions.asStateFlow()
+
+    private val _showSuggestions = MutableStateFlow(false)
+    val showSuggestions: StateFlow<Boolean> = _showSuggestions.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _addressBarUrl.debounce(200).distinctUntilChanged().collect { query ->
+                if (query.length >= 2) {
+                    _suggestions.value = historyRepository.search(query)
+                } else {
+                    _suggestions.value = emptyList()
+                }
+            }
+        }
+    }
+
     var forceDarkMode: Boolean = false
 
-    /** 暗色模式切换回调（通知 Activity 持久化） */
     var onDarkModeToggled: ((Boolean) -> Unit)? = null
 
-    /** 切换暗色模式 */
     fun onToggleDarkMode() {
         val newValue = !forceDarkMode
         forceDarkMode = newValue
@@ -92,22 +110,18 @@ class BrowserViewModel @Inject constructor(
         onDarkModeToggled?.invoke(newValue)
     }
 
-    /** 同步暗色模式到所有引擎 */
     fun syncDarkModeToEngines() {
         tabManager.tabs.value.forEach { tab ->
             tabManager.getEngine(tab.id)?.forceDarkMode = forceDarkMode
         }
     }
 
-
-    /** 初始化引擎的回调（在 getEngine 后调用） */
     fun bindEngine(engine: BrowserEngine, tabId: String) {
         engine.forceDarkMode = forceDarkMode
         engine.onPageFinishedListener = { url, title ->
             viewModelScope.launch {
                 historyRepository.recordVisit(url, title, null)
             }
-            // 同步更新 Tab 标题
             tabManager.updateTab(tabId) { it.copy(title = title, url = url) }
         }
         engine.onPageStartedListener = { url ->
@@ -117,7 +131,6 @@ class BrowserViewModel @Inject constructor(
             try {
                 context.startActivity(Intent(Intent.ACTION_VIEW, uri))
             } catch (e: Exception) {
-                // 无应用可处理
             }
         }
         engine.onCreateWindow = { url ->
@@ -130,11 +143,23 @@ class BrowserViewModel @Inject constructor(
 
     fun updateAddressBar(url: String) {
         _addressBarUrl.value = url
+        _showSuggestions.value = true
+    }
+
+    fun onSuggestionClick(url: String) {
+        _addressBarUrl.value = url
+        _showSuggestions.value = false
+        tabManager.getActiveEngine()?.loadUrl(url)
+    }
+
+    fun hideSuggestions() {
+        _showSuggestions.value = false
     }
 
     fun submitAddressBar() {
         val raw = _addressBarUrl.value.trim()
         if (raw.isEmpty()) return
+        _showSuggestions.value = false
         val url = normalizeUrl(raw)
         tabManager.getActiveEngine()?.loadUrl(url)
     }
@@ -169,7 +194,6 @@ class BrowserViewModel @Inject constructor(
 
     fun getEngine(tabId: String): BrowserEngine? = tabManager.getEngine(tabId)
 
-    // --- 页面内查找 ---
     fun showFindInPage() { _showFindInPage.value = true }
     fun hideFindInPage() {
         _showFindInPage.value = false
@@ -185,7 +209,6 @@ class BrowserViewModel @Inject constructor(
         }
     }
 
-    // --- 下载处理 ---
     private fun handleDownload(
         url: String,
         userAgent: String,
@@ -194,7 +217,6 @@ class BrowserViewModel @Inject constructor(
         contentLength: Long
     ) {
         val fileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
-        // 使用系统 DownloadManager
         try {
             val request = android.app.DownloadManager.Request(Uri.parse(url))
                 .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
@@ -204,7 +226,6 @@ class BrowserViewModel @Inject constructor(
             val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
             dm.enqueue(request)
         } catch (e: Exception) {
-            // 下载失败
         }
     }
 
