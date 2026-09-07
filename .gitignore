@@ -13,6 +13,13 @@ local.properties
 # Build outputs
 /app/build/
 */build/
+
+# Screenshots and temp files
+*.png
+*.jpg
+.baidu_*.png
+.example_*.png
+.test_*.png
 captures/
 .externalNativeBuild/
 .cxx/
