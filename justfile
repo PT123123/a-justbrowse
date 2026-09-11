@@ -23,7 +23,7 @@ clean:
 
 # 安装 Debug APK 到连接的设备
 install:
-    ./gradlew :app:installDebug
+    adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 # 安装并启动
 install-run: install
