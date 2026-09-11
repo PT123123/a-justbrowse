@@ -26,7 +26,7 @@ enum class SearchEngine(val label: String, val template: String) {
 
 data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
-    val searchEngine: SearchEngine = SearchEngine.GOOGLE,
+    val searchEngine: SearchEngine = SearchEngine.BING,
     val adBlockingEnabled: Boolean = true,
     val javaScriptEnabled: Boolean = true,
     val loadImages: Boolean = true,
@@ -55,7 +55,7 @@ class SettingsDataStore @Inject constructor(
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
         AppSettings(
             themeMode = prefs[Keys.THEME_MODE]?.let { ThemeMode.valueOf(it) } ?: ThemeMode.SYSTEM,
-            searchEngine = prefs[Keys.SEARCH_ENGINE]?.let { SearchEngine.valueOf(it) } ?: SearchEngine.GOOGLE,
+            searchEngine = prefs[Keys.SEARCH_ENGINE]?.let { SearchEngine.valueOf(it) } ?: SearchEngine.BING,
             adBlockingEnabled = prefs[Keys.AD_BLOCKING] ?: true,
             javaScriptEnabled = prefs[Keys.JS_ENABLED] ?: true,
             loadImages = prefs[Keys.LOAD_IMAGES] ?: true,
