@@ -42,6 +42,8 @@ class BrowserEngine(
     var webView: WebView? = null
         private set
 
+    private var appContext: Context? = null
+
     /** 是否启用强制暗色模式 */
     var forceDarkMode: Boolean = false
         set(value) {
@@ -82,8 +84,8 @@ class BrowserEngine(
     /** 下载回调 — 由外部设置 */
     var onDownloadListener: ((url: String, userAgent: String, contentDisposition: String, mimeType: String, contentLength: Long) -> Unit)? = null
 
-    /** 新窗口请求回调 */
-    var onCreateWindow: ((url: String) -> Unit)? = null
+    /** 新窗口请求回调：返回新标签页的 Engine */
+    var onCreateWindow: (() -> BrowserEngine?)? = null
 
     /** 页面开始加载回调（用于记录历史） */
     var onPageStartedListener: ((url: String) -> Unit)? = null
@@ -95,13 +97,7 @@ class BrowserEngine(
     var onExternalLinkListener: ((uri: Uri) -> Unit)? = null
 
     @SuppressLint("SetJavaScriptEnabled")
-    fun attach(context: Context, parent: ViewGroup) {
-        if (webView != null) {
-            (webView?.parent as? ViewGroup)?.removeView(webView)
-            parent.removeAllViews()
-            parent.addView(webView)
-            return
-        }
+    private fun createWebView(context: Context): WebView {
         val wv = WebView(context).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -119,34 +115,49 @@ class BrowserEngine(
                 setSupportMultipleWindows(true)
                 javaScriptCanOpenWindowsAutomatically = false
                 cacheMode = WebSettings.LOAD_DEFAULT
+                setOffscreenPreRaster(true)
                 userAgentString = "$userAgentString JustBrowse/0.1"
-                // 允许文件访问（用于本地脚本等）
                 allowFileAccess = true
-                // Cookie
                 CookieManager.getInstance().setAcceptCookie(true)
             }
             webViewClient = JustBrowseWebViewClient()
             webChromeClient = JustBrowseWebChromeClient()
-            // Set background based on dark mode
             if (forceDarkMode) {
                 setBackgroundColor(android.graphics.Color.parseColor("#121212"))
             } else {
                 setBackgroundColor(android.graphics.Color.WHITE)
             }
-            // GM 桥挂载
             addJavascriptInterface(scriptInjector.bridge, "GM_Bridge")
-            // 下载监听
             setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
                 onDownloadListener?.invoke(url, userAgent, contentDisposition, mimeType, contentLength)
             }
         }
-        // Accept third-party cookies after WebView is created
         CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true)
+        return wv
+    }
+
+    /** 为新窗口预创建 WebView（不挂载到 ViewGroup），供 onCreateWindow 使用 */
+    fun prepareForNewWindow(context: Context): WebView {
+        appContext = context
+        return webView ?: createWebView(context).also { webView = it }
+    }
+
+    fun attach(context: Context, parent: ViewGroup) {
+        appContext = context
+        if (webView != null) {
+            (webView?.parent as? ViewGroup)?.removeView(webView)
+            parent.removeAllViews()
+            parent.addView(webView)
+            return
+        }
+        val wv = createWebView(context)
         webView = wv
         parent.removeAllViews()
         parent.addView(wv)
-        if (initialUrl != "about:blank") {
-            wv.loadUrl(initialUrl)
+        // WebView 重建时加载当前 URL（而非构造时的 initialUrl）
+        val currentUrl = _url.value
+        if (currentUrl.isNotEmpty() && currentUrl != "about:blank") {
+            wv.loadUrl(currentUrl)
         }
     }
 
@@ -213,12 +224,10 @@ class BrowserEngine(
         webView?.restoreState(savedInstanceState)
     }
 
-    /** 在页面内查找文本 */
     fun findInPage(text: String) {
         webView?.findAllAsync(text)
     }
 
-    /** 停止查找 */
     fun clearFind() {
         webView?.clearMatches()
     }
@@ -226,7 +235,6 @@ class BrowserEngine(
     private inner class JustBrowseWebViewClient : WebViewClient() {
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             val uri = request.url
-            // 自定义 scheme 兜底到外部
             if (uri.scheme !in setOf("http", "https", "file", "about")) {
                 onExternalLinkListener?.invoke(uri)
                 return true
@@ -258,7 +266,6 @@ class BrowserEngine(
         private var lastInjectedUrl: String? = null
 
         override fun onPageFinished(view: WebView, url: String) {
-            // 只处理主 frame 且避免重复注入
             val viewUrl = view.url ?: ""
             if (!viewUrl.startsWith(url.removeSuffix("/")) && !url.startsWith(viewUrl.removeSuffix("/"))) return
 
@@ -270,13 +277,10 @@ class BrowserEngine(
             _canGoBack.value = view.canGoBack()
             _canGoForward.value = view.canGoForward()
             onPageFinishedListener?.invoke(url, _title.value)
-            // 注入元素隐藏 CSS
             injectElementHidingCss(view, url)
-            // 注入暗色模式
             if (forceDarkMode) {
                 DarkModeInjector.inject(this@BrowserEngine)
             }
-            // 注入 DOCUMENT_IDLE 脚本
             scriptInjector.inject(this@BrowserEngine, url, UserScript.RunAt.DOCUMENT_IDLE)
         }
 
@@ -301,7 +305,6 @@ class BrowserEngine(
             request: WebResourceRequest,
             error: WebResourceError
         ) {
-            // 只处理主 frame 错误
             if (request.isForMainFrame) {
                 _errorCode.value = error.errorCode
                 _isLoading.value = false
@@ -313,7 +316,6 @@ class BrowserEngine(
     private inner class JustBrowseWebChromeClient : WebChromeClient() {
         override fun onProgressChanged(view: WebView, newProgress: Int) {
             _progress.value = newProgress
-            // 在 30% 左右注入 DOCUMENT_START 脚本（近似）
             if (newProgress in 25..35) {
                 scriptInjector.inject(
                     this@BrowserEngine,
@@ -337,15 +339,16 @@ class BrowserEngine(
             isUserGesture: Boolean,
             resultMsg: Message?
         ): Boolean {
-            // 拦截 window.open，通过回调让 TabManager 新建 tab
             val transport = resultMsg?.obj as? WebView.WebViewTransport
-            if (transport != null && isUserGesture) {
-                // 无法直接获取 URL，通过 JS 桥接或让外部处理
-                // 简化：创建新 tab 加载 about:blank，后续由 JS 注入处理
-                onCreateWindow?.invoke("about:blank")
-                return false
-            }
-            return false
+            if (transport == null || !isUserGesture) return false
+            // 通过回调创建新标签页并获取其 Engine
+            val newEngine = onCreateWindow?.invoke() ?: return false
+            val ctx = appContext ?: return false
+            // 为新 Engine 预创建 WebView 并设置到 transport
+            val newWebView = newEngine.prepareForNewWindow(ctx)
+            transport.webView = newWebView
+            resultMsg.sendToTarget()
+            return true
         }
 
         override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
@@ -354,7 +357,6 @@ class BrowserEngine(
         }
 
         override fun onPermissionRequest(request: PermissionRequest) {
-            // M0: 默认拒绝，M2+ 弹用户授权
             request.deny()
         }
     }

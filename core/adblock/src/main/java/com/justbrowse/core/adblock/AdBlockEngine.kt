@@ -30,20 +30,38 @@ class AdBlockEngine(rules: List<FilterRule>) {
         }
     }
 
+    /** 非域名锚定规则（路径匹配、通配符等），每次请求都需扫描 */
+    private val nonDomainRules: List<FilterRule.BlockRule> = blockRules.filter { !it.isDomainAnchor }
+
     fun shouldBlock(url: String, pageDomain: String = ""): Boolean {
         val urlDomain = extractDomain(url)
 
-        // 先检查例外规则
+        // 先检查例外规则（数量少，直接扫）
         for (rule in exceptionRules) {
             if (rule.matches(url, pageDomain)) return false
         }
 
-        // 检查拦截规则
-        for (rule in blockRules) {
-            if (rule.matches(url, pageDomain)) {
-                return true
+        // 检查非域名锚定规则（/ads/、/banner.gif 等路径规则）
+        for (rule in nonDomainRules) {
+            if (rule.matches(url, pageDomain)) return true
+        }
+
+        // 域名锚定规则：通过 domainIndex 快速查找，避免全量扫描
+        // 1) 精确域名匹配
+        domainIndex[urlDomain]?.let { rules ->
+            for (rule in rules) {
+                if (rule.matches(url, pageDomain)) return true
             }
         }
+        // 2) 子域名匹配（如 doubleclick.net 匹配 ad.doubleclick.net）
+        for ((domain, rules) in domainIndex) {
+            if (urlDomain.endsWith(".$domain")) {
+                for (rule in rules) {
+                    if (rule.matches(url, pageDomain)) return true
+                }
+            }
+        }
+
         return false
     }
 

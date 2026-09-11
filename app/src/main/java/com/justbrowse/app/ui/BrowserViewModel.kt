@@ -67,7 +67,7 @@ class BrowserViewModel @Inject constructor(
         BrowserUiState(
             tabs = tabs,
             activeTab = activeTab,
-            activeUrl = engine?.url?.value ?: activeTab?.url ?: "about:blank",
+            activeUrl = (engine?.url?.value ?: activeTab?.url).takeIf { it != null && it != "about:blank" } ?: "",
             title = engine?.title?.value ?: activeTab?.title ?: "",
             progress = engine?.progress?.value ?: 0,
             canGoBack = engine?.canGoBack?.value ?: false,
@@ -164,8 +164,8 @@ class BrowserViewModel @Inject constructor(
             } catch (e: Exception) {
             }
         }
-        engine.onCreateWindow = { url ->
-            tabManager.openTab(url, activate = true)
+        engine.onCreateWindow = {
+            tabManager.createTabForNewWindow()
         }
         engine.onDownloadListener = { url, userAgent, contentDisposition, mimeType, contentLength ->
             handleDownload(url, userAgent, contentDisposition, mimeType, contentLength)
@@ -310,12 +310,26 @@ class BrowserViewModel @Inject constructor(
     }
 
     private fun normalizeUrl(raw: String, engine: SearchEngine): String {
-        val lower = raw.lowercase()
-        return when {
-            lower.startsWith("http://") || lower.startsWith("https://") -> raw.lowercase()
-            lower.contains("://") -> raw.lowercase()
-            lower.contains(".") && !lower.contains(" ") -> "https://$raw"
-            else -> engine.template.replace("%s", java.net.URLEncoder.encode(raw, "UTF-8"))
-        }
+        val input = raw.trim()
+        // 已有 scheme（http://、https://、ftp:// 等），原样使用，不丢大小写
+        if (Regex("^[a-zA-Z][a-zA-Z0-9+.\\-]*://").containsMatchIn(input)) return input
+        // 特殊协议
+        if (input.startsWith("about:") || input.startsWith("data:") ||
+            input.startsWith("file:") || input.startsWith("javascript:")
+        ) return input
+        // localhost（可带端口）
+        if (input == "localhost" || input.startsWith("localhost:")) return "http://$input"
+        // 看起来像域名/IP：含点、无空格、由合法 hostname 字符组成
+        if (DOMAIN_PATTERN.matches(input)) return "https://$input"
+        // 其余一律走搜索引擎
+        return engine.template.replace("%s", java.net.URLEncoder.encode(raw, "UTF-8"))
+    }
+
+    private companion object {
+        val DOMAIN_PATTERN = Regex(
+            "^[a-zA-Z0-9]([a-zA-Z0-9\\-]*[a-zA-Z0-9])?" +
+            "(\\.[a-zA-Z0-9]([a-zA-Z0-9\\-]*[a-zA-Z0-9])+)+" +
+            "(:\\d+)?(/[^\\s]*)?$"
+        )
     }
 }

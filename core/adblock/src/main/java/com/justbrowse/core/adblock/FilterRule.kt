@@ -24,6 +24,11 @@ sealed class FilterRule {
         val options: RuleOptions = RuleOptions(),
         val isException: Boolean = false
     ) : FilterRule() {
+
+        /** 预编译正则（仅 isRegex 时非空），避免每次匹配重新编译 */
+        private val compiledRegex: Regex? =
+            if (isRegex) Regex(pattern, RegexOption.IGNORE_CASE) else null
+
         /** 判断此规则是否应该拦截给定的 URL */
         fun matches(url: String, pageDomain: String = "", requestType: String = "") : Boolean {
             // 类型检查
@@ -42,7 +47,7 @@ sealed class FilterRule {
             }
 
             return when {
-                isRegex -> Regex(pattern, RegexOption.IGNORE_CASE).containsMatchIn(url)
+                isRegex -> compiledRegex?.containsMatchIn(url) == true
                 isDomainAnchor -> {
                     // ||example.com/path 匹配任何协议+example.com+path
                     val cleanPattern = pattern.removePrefix("||")

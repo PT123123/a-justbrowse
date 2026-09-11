@@ -71,6 +71,26 @@ class TabManager @Inject constructor(
         scope.launch { createTabInternal(url, activate) }
     }
 
+
+    /** 同步创建新标签页并返回其 Engine（供 onCreateWindow 使用） */
+    fun createTabForNewWindow(): BrowserEngine? {
+        val now = System.currentTimeMillis()
+        val tab = Tab(
+            id = java.util.UUID.randomUUID().toString(),
+            url = "about:blank",
+            title = "",
+            createdAt = now,
+            updatedAt = now,
+            isActive = true
+        )
+        _tabs.value = _tabs.value.map { it.copy(isActive = false) } + tab
+        _activeTabId.value = tab.id
+        scope.launch {
+            tabRepository.saveTab(tab)
+            tabRepository.setActiveTab(tab.id)
+        }
+        return getEngine(tab.id)
+    }
     fun switchTab(tabId: String) {
         if (_tabs.value.none { it.id == tabId }) return
         _activeTabId.value = tabId

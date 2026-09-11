@@ -5,6 +5,10 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -14,8 +18,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.justbrowse.core.webview.BrowserEngine
 
 /**
- * Compose ↔ WebView 桥接：每个 BrowserEngine 实例对应一个 WebView，
- * 通过 AndroidView 挂载到 Compose 树中，并绑定生命周期。
+ * Compose ↔ WebView 桥接：使用一个固定的 FrameLayout，
+ * 在 engine 变化时原子切换 WebView（detach 旧的 + attach 新的），
+ * 避免 key() 重建导致的中间空白帧。
  */
 @Composable
 fun WebViewContainer(
@@ -25,11 +30,8 @@ fun WebViewContainer(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    DisposableEffect(engine) {
-        onDispose {
-            engine.detach()
-        }
-    }
+    // 记住当前挂载在 FrameLayout 上的 engine
+    var attachedEngine by remember { mutableStateOf<BrowserEngine?>(null) }
 
     AndroidView(
         factory = { ctx ->
@@ -38,11 +40,20 @@ fun WebViewContainer(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
-                engine.attach(ctx, this)
             }
         },
-        update = { /* 由 ViewModel 驱动 engine.loadUrl */ },
-        onRelease = { engine.destroy() },
+        update = { parent ->
+            // engine 变化时：detach 旧 engine，attach 新 engine 到同一个 parent
+            if (attachedEngine !== engine) {
+                attachedEngine?.detach()
+                engine.attach(context, parent)
+                attachedEngine = engine
+            }
+        },
+        onRelease = {
+            attachedEngine?.detach()
+            attachedEngine = null
+        },
         modifier = modifier
     )
 
@@ -62,5 +73,4 @@ fun WebViewContainer(
     }
 }
 
-/** 隐藏 Compose 对 WebView 的直接引用，便于未来替换为自嵌入引擎。 */
 typealias WebViewHost = WebView
