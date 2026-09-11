@@ -148,6 +148,8 @@ class BrowserEngine(
             (webView?.parent as? ViewGroup)?.removeView(webView)
             parent.removeAllViews()
             parent.addView(webView)
+            webView?.onResume()
+            webView?.resumeTimers()
             return
         }
         val wv = createWebView(context)
@@ -159,10 +161,18 @@ class BrowserEngine(
         if (currentUrl.isNotEmpty() && currentUrl != "about:blank") {
             wv.loadUrl(currentUrl)
         }
+        // 如果已开启暗色模式，立即注入 CSS
+        if (forceDarkMode) {
+            DarkModeInjector.inject(this)
+        }
     }
 
     fun detach() {
-        webView?.let { (it.parent as? ViewGroup)?.removeView(it) }
+        webView?.let {
+            it.onPause()
+            it.pauseTimers()
+            (it.parent as? ViewGroup)?.removeView(it)
+        }
     }
 
     fun loadUrl(url: String) {
