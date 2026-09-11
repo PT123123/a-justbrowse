@@ -145,10 +145,10 @@ class BrowserEngine(
     fun attach(context: Context, parent: ViewGroup) {
         appContext = context
         if (webView != null) {
-            (webView?.parent as? ViewGroup)?.removeView(webView)
-            parent.addView(webView)
-            webView?.onResume()
-            webView?.resumeTimers()
+            if (webView?.parent !== parent) {
+                (webView?.parent as? ViewGroup)?.removeView(webView)
+                parent.addView(webView)
+            }
             return
         }
         val wv = createWebView(context)
@@ -166,11 +166,7 @@ class BrowserEngine(
     }
 
     fun detach() {
-        // 仅暂停渲染，不从 View 树移除（由 WebViewContainer 用 visibility 管理）
-        webView?.let {
-            it.onPause()
-            it.pauseTimers()
-        }
+        // 不做任何事——WebViewContainer 用 visibility 管理，不 remove view
     }
 
     fun loadUrl(url: String) {
