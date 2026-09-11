@@ -1,14 +1,13 @@
 package com.justbrowse.app.ui
 
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -19,9 +18,11 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.justbrowse.core.webview.BrowserEngine
 
 /**
- * Compose ↔ WebView 桥接：使用一个固定的 FrameLayout，
- * 在 engine 变化时原子切换 WebView（detach 旧的 + attach 新的），
- * 避免 key() 重建导致的中间空白帧。
+ * Compose ↔ WebView 桥接。
+ *
+ * 关键设计：所有已创建的 WebView 都保留在同一个 FrameLayout 中，
+ * 通过 visibility 切换（VISIBLE/GONE）来切换标签页，
+ * 不做 detach/attach 操作——避免快速切换时 Surface 重建导致黑屏。
  */
 @Composable
 fun WebViewContainer(
@@ -31,8 +32,8 @@ fun WebViewContainer(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // 用普通 var 记录当前挂载的 engine，不用 state 避免触发多余 recompose
-    val attachedEngine = remember { arrayOfNulls<BrowserEngine>(1) }
+    // 当前可见的 engine（用数组避免 state 重建）
+    val visibleEngine = remember { arrayOfNulls<BrowserEngine>(1) }
 
     AndroidView(
         factory = { ctx ->
@@ -44,24 +45,45 @@ fun WebViewContainer(
             }
         },
         update = { parent ->
-            val current = attachedEngine[0]
-            if (current !== engine) {
-                current?.detach()
+            val prev = visibleEngine[0]
+            if (prev === engine) return@AndroidView
+
+            // 1. 隐藏旧 WebView（不移除，保留 Surface）
+            prev?.webView?.visibility = View.GONE
+
+            // 2. 确保新 engine 的 WebView 存在并挂载到 parent
+            val wv = engine.webView
+            if (wv != null) {
+                // 从其他父容器移除
+                (wv.parent as? ViewGroup)?.removeView(wv)
+                // 如果 parent 里还没有这个 WebView，加上
+                if (wv.parent !== parent) {
+                    parent.addView(wv)
+                }
+                wv.visibility = View.VISIBLE
+                wv.onResume()
+                wv.resumeTimers()
+            } else {
+                // WebView 还没创建过，调用 attach 创建
                 engine.attach(context, parent)
-                attachedEngine[0] = engine
-                // 强制重绘，避免快速切换时 Surface 未失效导致黑屏
-                parent.requestLayout()
-                parent.invalidate()
+                engine.webView?.visibility = View.VISIBLE
             }
+
+            // 3. 暂停旧 engine 的渲染
+            prev?.webView?.let {
+                it.onPause()
+                it.pauseTimers()
+            }
+
+            visibleEngine[0] = engine
         },
         onRelease = {
-            attachedEngine[0]?.detach()
-            attachedEngine[0] = null
+            visibleEngine[0]?.webView?.visibility = View.VISIBLE
+            visibleEngine[0] = null
         },
         modifier = modifier
     )
 
-    // 始终引用最新的 engine，避免 lambda 捕获旧值
     val currentEngine by rememberUpdatedState(engine)
 
     DisposableEffect(lifecycleOwner) {
