@@ -20,9 +20,9 @@ import com.justbrowse.core.webview.BrowserEngine
 /**
  * Compose ↔ WebView 桥接。
  *
- * 关键设计：所有已创建的 WebView 都保留在同一个 FrameLayout 中，
- * 通过 visibility 切换（VISIBLE/GONE）来切换标签页，
- * 不做 detach/attach 操作——避免快速切换时 Surface 重建导致黑屏。
+ * 所有 WebView 常驻在同一个 FrameLayout，仅通过 visibility 切换。
+ * 不在标签切换时调用 onPause/onResume，不做 remove/add，
+ * 避免 Surface 重建导致黑屏。
  */
 @Composable
 fun WebViewContainer(
@@ -31,8 +31,6 @@ fun WebViewContainer(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-
-    // 当前可见的 engine（用数组避免 state 重建）
     val visibleEngine = remember { arrayOfNulls<BrowserEngine>(1) }
 
     AndroidView(
@@ -48,37 +46,27 @@ fun WebViewContainer(
             val prev = visibleEngine[0]
             if (prev === engine) return@AndroidView
 
-            // 1. 隐藏旧 WebView（不移除，保留 Surface）
+            // 隐藏旧 WebView
             prev?.webView?.visibility = View.GONE
 
-            // 2. 确保新 engine 的 WebView 存在并挂载到 parent
+            // 确保新 engine 的 WebView 已挂载到 parent
             val wv = engine.webView
             if (wv != null) {
-                // 从其他父容器移除
-                (wv.parent as? ViewGroup)?.removeView(wv)
-                // 如果 parent 里还没有这个 WebView，加上
+                // 只在 WebView 不在当前 parent 时才移动它
                 if (wv.parent !== parent) {
+                    (wv.parent as? ViewGroup)?.removeView(wv)
                     parent.addView(wv)
                 }
                 wv.visibility = View.VISIBLE
-                wv.onResume()
-                wv.resumeTimers()
             } else {
-                // WebView 还没创建过，调用 attach 创建
+                // WebView 还没创建，attach 创建并挂载
                 engine.attach(context, parent)
                 engine.webView?.visibility = View.VISIBLE
-            }
-
-            // 3. 暂停旧 engine 的渲染
-            prev?.webView?.let {
-                it.onPause()
-                it.pauseTimers()
             }
 
             visibleEngine[0] = engine
         },
         onRelease = {
-            visibleEngine[0]?.webView?.visibility = View.VISIBLE
             visibleEngine[0] = null
         },
         modifier = modifier
