@@ -146,7 +146,6 @@ class BrowserEngine(
         appContext = context
         if (webView != null) {
             (webView?.parent as? ViewGroup)?.removeView(webView)
-            parent.removeAllViews()
             parent.addView(webView)
             webView?.onResume()
             webView?.resumeTimers()
@@ -154,7 +153,6 @@ class BrowserEngine(
         }
         val wv = createWebView(context)
         webView = wv
-        parent.removeAllViews()
         parent.addView(wv)
         // WebView 重建时加载当前 URL（而非构造时的 initialUrl）
         val currentUrl = _url.value
@@ -168,10 +166,10 @@ class BrowserEngine(
     }
 
     fun detach() {
+        // 仅暂停渲染，不从 View 树移除（由 WebViewContainer 用 visibility 管理）
         webView?.let {
             it.onPause()
             it.pauseTimers()
-            (it.parent as? ViewGroup)?.removeView(it)
         }
     }
 
