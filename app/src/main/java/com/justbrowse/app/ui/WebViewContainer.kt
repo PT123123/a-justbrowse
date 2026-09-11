@@ -5,10 +5,11 @@ import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -30,8 +31,8 @@ fun WebViewContainer(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // 记住当前挂载在 FrameLayout 上的 engine
-    var attachedEngine by remember { mutableStateOf<BrowserEngine?>(null) }
+    // 用普通 var 记录当前挂载的 engine，不用 state 避免触发多余 recompose
+    val attachedEngine = remember { arrayOfNulls<BrowserEngine>(1) }
 
     AndroidView(
         factory = { ctx ->
@@ -43,26 +44,32 @@ fun WebViewContainer(
             }
         },
         update = { parent ->
-            // engine 变化时：detach 旧 engine，attach 新 engine 到同一个 parent
-            if (attachedEngine !== engine) {
-                attachedEngine?.detach()
+            val current = attachedEngine[0]
+            if (current !== engine) {
+                current?.detach()
                 engine.attach(context, parent)
-                attachedEngine = engine
+                attachedEngine[0] = engine
+                // 强制重绘，避免快速切换时 Surface 未失效导致黑屏
+                parent.requestLayout()
+                parent.invalidate()
             }
         },
         onRelease = {
-            attachedEngine?.detach()
-            attachedEngine = null
+            attachedEngine[0]?.detach()
+            attachedEngine[0] = null
         },
         modifier = modifier
     )
 
+    // 始终引用最新的 engine，避免 lambda 捕获旧值
+    val currentEngine by rememberUpdatedState(engine)
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> engine.resume()
-                Lifecycle.Event.ON_PAUSE -> engine.pause()
-                Lifecycle.Event.ON_DESTROY -> engine.destroy()
+                Lifecycle.Event.ON_RESUME -> currentEngine.resume()
+                Lifecycle.Event.ON_PAUSE -> currentEngine.pause()
+                Lifecycle.Event.ON_DESTROY -> currentEngine.destroy()
                 else -> {}
             }
         }
