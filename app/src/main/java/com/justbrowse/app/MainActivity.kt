@@ -1,17 +1,20 @@
 package com.justbrowse.app
 
-import android.content.Intent
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -25,6 +28,7 @@ import com.justbrowse.ui.screens.HistoryScreen
 import com.justbrowse.ui.screens.ScriptScreen
 import com.justbrowse.ui.screens.SettingsScreen
 import com.justbrowse.ui.theme.JustBrowseTheme
+import com.justbrowse.ui.theme.resolveDarkTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -60,20 +64,44 @@ class MainActivity : ComponentActivity() {
         // 注意：Intent URL 处理需要通过 ViewModel 传递，这里暂不实现
 
         enableEdgeToEdge()
+        val activityWindow = window
         setContent {
             val settings by settingsFlow.collectAsState()
+            // 全应用唯一的暗色判定：SYSTEM 跟随系统，LIGHT/DARK 为应用内强制
+            val darkTheme = resolveDarkTheme(settings.themeMode)
+
+            // 系统栏图标明暗跟随「应用内主题」，而不是系统 uiMode ——
+            // 否则应用内强制暗色时，状态栏图标还是深色，在深色背景上直接看不见。
+            LaunchedEffect(darkTheme) {
+                val barStyle = SystemBarStyle.auto(
+                    android.graphics.Color.TRANSPARENT,
+                    android.graphics.Color.TRANSPARENT
+                ) { darkTheme }
+                enableEdgeToEdge(
+                    statusBarStyle = barStyle,
+                    navigationBarStyle = barStyle
+                )
+            }
 
             JustBrowseTheme(
                 themeMode = settings.themeMode,
                 useDynamicColor = settings.useDynamicColor
             ) {
+                // 窗口底色跟随主题，避免暗色下启动/切换时闪白
+                val background = MaterialTheme.colorScheme.background
+                LaunchedEffect(background) {
+                    activityWindow.setBackgroundDrawable(ColorDrawable(background.toArgb()))
+                }
+
                 Surface(modifier = Modifier.fillMaxSize()) {
                     JustBrowseNavHost(
                         settingsFlow = settingsFlow,
-                        forceDarkMode = settings.forceDarkMode,
-                        onForceDarkModeChanged = { enabled ->
+                        darkMode = darkTheme,
+                        onDarkModeChanged = { enabled ->
                             lifecycleScope.launch {
-                                settingsDataStore.setForceDarkMode(enabled)
+                                settingsDataStore.setThemeMode(
+                                    if (enabled) ThemeMode.DARK else ThemeMode.LIGHT
+                                )
                             }
                         }
                     )
@@ -86,8 +114,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun JustBrowseNavHost(
     settingsFlow: StateFlow<com.justbrowse.data.prefs.AppSettings>,
-    forceDarkMode: Boolean = false,
-    onForceDarkModeChanged: (Boolean) -> Unit = {}
+    darkMode: Boolean = false,
+    onDarkModeChanged: (Boolean) -> Unit = {}
 ) {
     val navController = rememberNavController()
     val settings by settingsFlow.collectAsState()
@@ -100,8 +128,8 @@ fun JustBrowseNavHost(
                 onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
                 onNavigateToScripts = { navController.navigate(Routes.SCRIPTS) },
                 onNavigateToDownloads = { navController.navigate(Routes.DOWNLOADS) },
-                forceDarkMode = forceDarkMode,
-                onForceDarkModeChanged = onForceDarkModeChanged
+                darkMode = darkMode,
+                onDarkModeChanged = onDarkModeChanged
             )
         }
         composable(Routes.HISTORY) {
@@ -131,4 +159,3 @@ fun JustBrowseNavHost(
         }
     }
 }
-

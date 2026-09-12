@@ -83,14 +83,6 @@ fun SettingsScreen(
                     onCheckedChange = viewModel::setDynamicColor
                 )
             }
-            item {
-                SwitchSettingsItem(
-                    title = "Force Dark Mode",
-                    subtitle = "Invert page colors for night browsing",
-                    checked = settings.forceDarkMode,
-                    onCheckedChange = viewModel::setForceDarkMode
-                )
-            }
 
             item { SectionHeader("General") }
             item {

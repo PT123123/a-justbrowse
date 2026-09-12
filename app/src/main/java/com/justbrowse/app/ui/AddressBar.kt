@@ -1,51 +1,46 @@
 package com.justbrowse.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowForward
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -54,276 +49,177 @@ import com.justbrowse.data.suggestions.DefaultSites
 import com.justbrowse.data.suggestions.SuggestedSite
 import com.justbrowse.domain.model.HistoryEntry
 
+/**
+ * v3 搜索覆盖层：点击底部地址栏胶囊后全屏弹出。
+ * 顶部输入框（带搜索引擎切换），下方为历史建议 / 常用网站列表。
+ */
 @Composable
-fun AddressBar(
-    url: String,
-    title: String,
-    progress: Int,
-    canGoBack: Boolean,
-    canGoForward: Boolean,
-    isLoading: Boolean,
+fun SearchOverlay(
+    initialUrl: String,
     suggestions: List<HistoryEntry>,
     showSuggestions: Boolean,
-    isBookmarked: Boolean,
     searchEngine: SearchEngine,
+    onDismiss: () -> Unit,
     onUrlChange: (String) -> Unit,
     onSubmit: () -> Unit,
     onSuggestionClick: (String) -> Unit,
-    onDismissSuggestions: () -> Unit,
-    onBack: () -> Unit,
-    onForward: () -> Unit,
-    onReload: () -> Unit,
-    onHome: () -> Unit,
-    onToggleBookmark: () -> Unit,
     onSearchEngineChange: (SearchEngine) -> Unit,
     onClearHistory: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var editingUrl by remember(url) { mutableStateOf("") }
-    var isEditing by remember { mutableStateOf(false) }
-    var isFocused by remember { mutableStateOf(false) }
-    var showSearchEngineMenu by remember { mutableStateOf(false) }
-    var showMoreMenu by remember { mutableStateOf(false) }
-    val focusManager = LocalFocusManager.current
-    val configuration = LocalConfiguration.current
-    val isTablet = configuration.screenWidthDp >= 600
+    var editing by remember { mutableStateOf(initialUrl) }
+    var showEngineMenu by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
 
-    // Default sites shown when no history matches
-    val defaultSites = DefaultSites.search(editingUrl.ifEmpty { url }, 4)
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
 
-    Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 2.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack, enabled = canGoBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-            }
-            IconButton(onClick = onForward, enabled = canGoForward) {
-                Icon(Icons.Default.ArrowForward, contentDescription = "Forward")
-            }
-            IconButton(onClick = onReload) {
-                Icon(Icons.Default.Refresh, contentDescription = "Reload")
-            }
-            if (isTablet) {
-                IconButton(onClick = onHome) {
-                    Icon(Icons.Default.Home, contentDescription = "Home")
+    Surface(color = MaterialTheme.colorScheme.surface, modifier = modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel")
                 }
-            }
 
-            Box(modifier = Modifier.weight(1f)) {
-                OutlinedTextField(
-                    value = if (isEditing) editingUrl else url,
-                    onValueChange = {
-                        editingUrl = it
-                        isEditing = true
-                        onUrlChange(it)
-                    },
+                // 输入胶囊
+                Row(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { focusState ->
-                            isFocused = focusState.isFocused
-                            if (!focusState.isFocused) {
-                                onDismissSuggestions()
-                            }
-                        },
-                    singleLine = true,
-                    placeholder = {
-                        Text(
-                            text = "Search or enter address",
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                    keyboardActions = KeyboardActions(onGo = {
-                        onSubmit()
-                        isEditing = false
-                        onDismissSuggestions()
-                        focusManager.clearFocus()
-                    }),
-                    textStyle = MaterialTheme.typography.bodyMedium,
-                    leadingIcon = {
-                        if (!isEditing) {
-                            if (url.startsWith("https://")) {
-                                Icon(
-                                    Icons.Default.Lock,
-                                    contentDescription = "Secure",
-                                    modifier = Modifier.size(18.dp),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            } else if (url.startsWith("http://")) {
-                                Icon(
-                                    Icons.Default.LockOpen,
-                                    contentDescription = "Not secure",
-                                    modifier = Modifier.size(18.dp),
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                            }
+                        .weight(1f)
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(21.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box {
+                        IconButton(onClick = { showEngineMenu = true }) {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = searchEngine.label,
+                                modifier = Modifier.size(19.dp)
+                            )
                         }
-                    },
-                    trailingIcon = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (isEditing && editingUrl.isNotEmpty()) {
-                                IconButton(onClick = {
-                                    editingUrl = ""
-                                    onUrlChange("")
-                                }) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Clear")
-                                }
-                            } else {
-                                if (isTablet) {
-                                    Box {
-                                        IconButton(onClick = { showSearchEngineMenu = true }) {
-                                            Icon(
-                                                Icons.Default.Search,
-                                                contentDescription = searchEngine.label,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-                                        DropdownMenu(
-                                            expanded = showSearchEngineMenu,
-                                            onDismissRequest = { showSearchEngineMenu = false }
-                                        ) {
-                                            SearchEngine.entries.forEach { engine ->
-                                                DropdownMenuItem(
-                                                    text = { Text(engine.label) },
-                                                    onClick = {
-                                                        onSearchEngineChange(engine)
-                                                        showSearchEngineMenu = false
-                                                    }
-                                                )
-                                            }
-                                        }
+                        DropdownMenu(
+                            expanded = showEngineMenu,
+                            onDismissRequest = { showEngineMenu = false }
+                        ) {
+                            SearchEngine.entries.forEach { engine ->
+                                DropdownMenuItem(
+                                    text = { Text(engine.label) },
+                                    onClick = {
+                                        onSearchEngineChange(engine)
+                                        showEngineMenu = false
                                     }
-                                    IconButton(onClick = onToggleBookmark) {
-                                        Icon(
-                                            if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                            contentDescription = if (isBookmarked) "Remove bookmark" else "Add bookmark",
-                                            tint = if (isBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                } else {
-                                    Box {
-                                        IconButton(onClick = { showMoreMenu = true }) {
-                                            Icon(Icons.Default.Menu, contentDescription = "More")
-                                        }
-                                        DropdownMenu(
-                                            expanded = showMoreMenu,
-                                            onDismissRequest = { showMoreMenu = false }
-                                        ) {
-                                            DropdownMenuItem(
-                                                text = { Text("Home") },
-                                                leadingIcon = { Icon(Icons.Default.Home, contentDescription = null) },
-                                                onClick = {
-                                                    showMoreMenu = false
-                                                    onHome()
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                text = {
-                                                    Text(
-                                                        if (isBookmarked) "Remove bookmark" else "Add bookmark"
-                                                    )
-                                                },
-                                                leadingIcon = {
-                                                    Icon(
-                                                        if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                                        contentDescription = null
-                                                    )
-                                                },
-                                                onClick = {
-                                                    showMoreMenu = false
-                                                    onToggleBookmark()
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text("Search engine") },
-                                                leadingIcon = { Icon(Icons.Default.Language, contentDescription = null) },
-                                                onClick = {
-                                                    showMoreMenu = false
-                                                    showSearchEngineMenu = true
-                                                }
-                                            )
-                                            if (showSearchEngineMenu) {
-                                                SearchEngine.entries.forEach { engine ->
-                                                    DropdownMenuItem(
-                                                        text = { Text(engine.label) },
-                                                        onClick = {
-                                                            onSearchEngineChange(engine)
-                                                            showSearchEngineMenu = false
-                                                        }
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                                )
                             }
                         }
                     }
-                )
-
-                if (showSuggestions && suggestions.isNotEmpty() && isFocused) {
-                    Card(
+                    BasicTextField(
+                        value = editing,
+                        onValueChange = {
+                            editing = it
+                            onUrlChange(it)
+                        },
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 280.dp)
-                            .padding(top = 56.dp),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surface
-                        )
-                    ) {
-                        LazyColumn {
-                            items(suggestions, key = { it.id }) { entry ->
-                                SuggestionHistoryItem(
-                                    entry = entry,
-                                    onClick = {
-                                        onSuggestionClick(entry.url)
-                                        isEditing = false
-                                        focusManager.clearFocus()
-                                    }
-                                )
-                            }
-                            // Show default sites when no history matches
-                            if (suggestions.isEmpty() && isFocused && editingUrl.length >= 2) {
-                                items(defaultSites, key = { it.url }) { site ->
-                                    SuggestionSiteItem(
-                                        site = site,
-                                        onClick = {
-                                            onSuggestionClick(site.url)
-                                            isEditing = false
-                                            focusManager.clearFocus()
-                                        }
+                            .weight(1f)
+                            .focusRequester(focusRequester),
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                        keyboardActions = KeyboardActions(onGo = { onSubmit() }),
+                        decorationBox = { inner ->
+                            Box {
+                                if (editing.isEmpty()) {
+                                    Text(
+                                        text = "搜索或输入网址",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
+                                inner()
                             }
-                            item {
-                                SuggestionFooter(
-                                    onClearHistory = onClearHistory
-                                )
-                            }
+                        }
+                    )
+                    if (editing.isNotEmpty()) {
+                        IconButton(onClick = {
+                            editing = ""
+                            onUrlChange("")
+                        }) {
+                            Icon(
+                                Icons.Default.Clear,
+                                contentDescription = "Clear",
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
                 }
             }
 
-            IconButton(onClick = { /* TODO: open menu */ }) {
-                Icon(Icons.Default.Menu, contentDescription = "Menu")
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                val hist = if (showSuggestions) suggestions else emptyList()
+                val defaults = if (showSuggestions && suggestions.isEmpty() && editing.length >= 2) {
+                    DefaultSites.search(editing, 4)
+                } else {
+                    emptyList()
+                }
+
+                if (hist.isEmpty() && defaults.isEmpty()) {
+                    item {
+                        Text(
+                            text = if (editing.isBlank()) "输入网址或搜索关键词" else "没有找到相关结果",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(20.dp)
+                        )
+                    }
+                } else {
+                    if (hist.isNotEmpty()) {
+                        item {
+                            SectionHeader("History")
+                        }
+                        items(hist, key = { it.id }) { entry ->
+                            SuggestionHistoryItem(
+                                entry = entry,
+                                onClick = { onSuggestionClick(entry.url) }
+                            )
+                        }
+                        item {
+                            SuggestionFooter(onClick = onClearHistory)
+                        }
+                    }
+                    if (defaults.isNotEmpty()) {
+                        item {
+                            SectionHeader("Sites")
+                        }
+                        items(defaults, key = { it.url }) { site ->
+                            SuggestionSiteItem(
+                                site = site,
+                                onClick = { onSuggestionClick(site.url) }
+                            )
+                        }
+                    }
+                }
             }
         }
-
-        if (isLoading && progress in 1..99) {
-            LinearProgressIndicator(
-                progress = { progress / 100f },
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
     }
+}
+
+@Composable
+private fun SectionHeader(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 4.dp)
+    )
 }
 
 @Composable
@@ -335,16 +231,16 @@ private fun SuggestionHistoryItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             Icons.Default.History,
             contentDescription = null,
-            modifier = Modifier.padding(end = 12.dp),
+            modifier = Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1f).padding(start = 14.dp)) {
             Text(
                 text = entry.title.ifEmpty { entry.url },
                 style = MaterialTheme.typography.bodyMedium,
@@ -360,7 +256,7 @@ private fun SuggestionHistoryItem(
             )
         }
         Text(
-            text = "\${entry.visitCount}x",
+            text = "${entry.visitCount}x",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -376,16 +272,16 @@ private fun SuggestionSiteItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             Icons.Default.Language,
             contentDescription = null,
-            modifier = Modifier.padding(end = 12.dp),
+            modifier = Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1f).padding(start = 14.dp)) {
             Text(
                 text = site.title,
                 style = MaterialTheme.typography.bodyMedium,
@@ -404,26 +300,25 @@ private fun SuggestionSiteItem(
 }
 
 @Composable
-private fun SuggestionFooter(
-    onClearHistory: () -> Unit
-) {
+private fun SuggestionFooter(onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClearHistory)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             Icons.Default.Clear,
             contentDescription = null,
-            modifier = Modifier.padding(end = 12.dp),
+            modifier = Modifier.size(16.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
             text = "Clear browsing history",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 10.dp)
         )
     }
 }
