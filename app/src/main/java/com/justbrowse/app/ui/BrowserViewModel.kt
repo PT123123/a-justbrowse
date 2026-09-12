@@ -183,7 +183,7 @@ class BrowserViewModel @Inject constructor(
     fun onSuggestionClick(url: String) {
         _addressBarUrl.value = url
         _showSuggestions.value = false
-        tabManager.getActiveEngine()?.loadUrl(url)
+        loadInActiveTab(url)
     }
 
     fun hideSuggestions() {
@@ -194,16 +194,31 @@ class BrowserViewModel @Inject constructor(
         val raw = _addressBarUrl.value.trim()
         if (raw.isEmpty()) return
         _showSuggestions.value = false
-        val url = normalizeUrl(raw, searchEngine.value)
-        tabManager.getActiveEngine()?.loadUrl(url)
+        loadInActiveTab(normalizeUrl(raw, searchEngine.value))
     }
 
     /** 主屏搜索卡 / 快捷图标：把用户输入（网址或关键词）交给当前标签页加载 */
     fun loadUrlFromInput(raw: String) {
         val input = raw.trim()
         if (input.isEmpty()) return
-        val url = normalizeUrl(input, searchEngine.value)
-        tabManager.getActiveEngine()?.loadUrl(url)
+        loadInActiveTab(normalizeUrl(input, searchEngine.value))
+    }
+
+    /**
+     * 所有「主动加载」的统一入口。
+     *
+     * 首页/新标签页场景下 WebView 还未创建（WebViewContainer 尚未组合），
+     * 而 uiState 的 combine 不订阅 engine.url —— 只调 engine.loadUrl 时
+     * activeUrl 不会变化，UI 永远停在首页，页面也就永远不加载。
+     * 这里同步把目标 URL 写进 Tab 记录，用 activeTab 的变化驱动 uiState
+     * 离开首页；随后 attach() 创建 WebView 时会加载 engine.url。
+     */
+    private fun loadInActiveTab(url: String) {
+        val engine = tabManager.getActiveEngine() ?: return
+        engine.loadUrl(url)
+        tabManager.activeTabId.value?.let { tabId ->
+            tabManager.updateTab(tabId) { it.copy(url = url) }
+        }
     }
 
     fun goHome() {
