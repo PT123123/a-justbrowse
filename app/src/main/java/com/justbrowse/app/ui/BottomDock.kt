@@ -206,22 +206,22 @@ fun BottomDock(
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = onMenuDismiss) {
                     DropdownMenuItem(
-                        text = { Text("Home") },
+                        text = { Text("主页") },
                         leadingIcon = { Icon(Icons.Default.Home, contentDescription = null) },
                         onClick = onMenuHome
                     )
                     DropdownMenuItem(
-                        text = { Text("Refresh") },
+                        text = { Text("刷新") },
                         leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
                         onClick = onMenuRefresh
                     )
                     DropdownMenuItem(
-                        text = { Text("Find in page") },
+                        text = { Text("页内查找") },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                         onClick = onMenuFind
                     )
                     DropdownMenuItem(
-                        text = { Text(if (darkMode) "Dark mode ✓" else "Dark mode") },
+                        text = { Text(if (darkMode) "深色模式 ✓" else "深色模式") },
                         leadingIcon = {
                             Icon(
                                 Icons.Default.DarkMode,
@@ -236,17 +236,17 @@ fun BottomDock(
                         onClick = onMenuDark
                     )
                     DropdownMenuItem(
-                        text = { Text("Bookmarks") },
+                        text = { Text("书签") },
                         leadingIcon = { Icon(Icons.Default.Bookmark, contentDescription = null) },
                         onClick = onMenuBookmarks
                     )
                     DropdownMenuItem(
-                        text = { Text("History") },
+                        text = { Text("历史记录") },
                         leadingIcon = { Icon(Icons.Default.History, contentDescription = null) },
                         onClick = onMenuHistory
                     )
                     DropdownMenuItem(
-                        text = { Text("Settings") },
+                        text = { Text("设置") },
                         leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
                         onClick = onMenuSettings
                     )

@@ -427,18 +427,20 @@ private fun CaretTrack(
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
-    val padPx = with(density) { 14.dp.toPx() }
+    // 右端预留 54dp 给「x / L」位置标签，避免拇指圆点滑到最右时压住文字
+    val padLeftPx = with(density) { 14.dp.toPx() }
+    val padRightPx = with(density) { 54.dp.toPx() }
     var widthPx by remember { mutableStateOf(0f) }
 
     fun posFromX(x: Float): Int {
-        val usable = (widthPx - 2 * padPx).coerceAtLeast(1f)
-        val r = ((x - padPx) / usable).coerceIn(0f, 1f)
+        val usable = (widthPx - padLeftPx - padRightPx).coerceAtLeast(1f)
+        val r = ((x - padLeftPx) / usable).coerceIn(0f, 1f)
         return (r * textLength).roundToInt()
     }
 
     val ratio = if (textLength > 0) selection.toFloat() / textLength else 0f
-    val thumbCenter = padPx + ratio * (widthPx - 2 * padPx)
-    val fillWidth = if (widthPx > 0) thumbCenter else padPx
+    val thumbCenter = padLeftPx + ratio * (widthPx - padLeftPx - padRightPx)
+    val fillWidth = if (widthPx > 0) thumbCenter else padLeftPx
 
     Box(
         modifier = modifier

@@ -84,7 +84,7 @@ fun SearchOverlay(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 TextButton(onClick = onDismiss) {
-                    Text("Cancel")
+                    Text("取消")
                 }
 
                 // 输入胶囊
@@ -183,7 +183,7 @@ fun SearchOverlay(
                 } else {
                     if (hist.isNotEmpty()) {
                         item {
-                            SectionHeader("History")
+                            SectionHeader("历史记录")
                         }
                         items(hist, key = { it.id }) { entry ->
                             SuggestionHistoryItem(
@@ -197,7 +197,7 @@ fun SearchOverlay(
                     }
                     if (defaults.isNotEmpty()) {
                         item {
-                            SectionHeader("Sites")
+                            SectionHeader("常用网站")
                         }
                         items(defaults, key = { it.url }) { site ->
                             SuggestionSiteItem(
@@ -315,7 +315,7 @@ private fun SuggestionFooter(onClick: () -> Unit) {
             tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Text(
-            text = "Clear browsing history",
+            text = "清除浏览历史",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 10.dp)

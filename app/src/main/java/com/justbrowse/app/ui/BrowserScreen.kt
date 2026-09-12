@@ -1,5 +1,6 @@
 package com.justbrowse.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -49,6 +50,30 @@ fun BrowserScreen(
     var showSearchOverlay by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
 
+    val isHome = state.activeUrl.isEmpty()
+
+    // 系统返回键：先收起浮层，再网页后退（退不出则回主页）；
+    // 首页不拦截，交还系统（退出应用）。
+    BackHandler(enabled = showSearchOverlay || showTabSheet || showMenu || state.showFindInPage) {
+        when {
+            showSearchOverlay -> {
+                showSearchOverlay = false
+                viewModel.hideSuggestions()
+            }
+            showTabSheet -> showTabSheet = false
+            showMenu -> showMenu = false
+            state.showFindInPage -> viewModel.hideFindInPage()
+        }
+    }
+    if (!isHome) {
+        BackHandler(
+            enabled = !showSearchOverlay && !showTabSheet && !showMenu && !state.showFindInPage
+        ) {
+            val engine = state.activeTab?.id?.let { viewModel.getEngine(it) }
+            if (engine?.goBack() != true) viewModel.goHome()
+        }
+    }
+
     // App 的暗色状态是唯一来源，同步给所有 WebView 引擎（网页内容跟着一起变暗）
     LaunchedEffect(darkMode) {
         viewModel.setDarkMode(darkMode)
@@ -58,7 +83,6 @@ fun BrowserScreen(
 
         // ===== WebView 内容区（全屏，主屏时隐藏） =====
         val activeTabId = state.activeTab?.id
-        val isHome = state.activeUrl.isEmpty()
         if (activeTabId != null && !isHome) {
             val engine = viewModel.getEngine(activeTabId)
             if (engine != null) {
