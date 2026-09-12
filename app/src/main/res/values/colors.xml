@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 窗口底色：Compose 尚未绘制首帧前的兜底，避免暗色下闪白 -->
+    <color name="window_background">#FFFBFE</color>
+</resources>

@@ -32,8 +32,7 @@ data class AppSettings(
     val loadImages: Boolean = true,
     val doNotTrack: Boolean = true,
     val useDynamicColor: Boolean = true,
-    val textZoom: Int = 100,
-    val forceDarkMode: Boolean = false
+    val textZoom: Int = 100
 )
 
 @Singleton
@@ -49,7 +48,6 @@ class SettingsDataStore @Inject constructor(
         val DO_NOT_TRACK = booleanPreferencesKey("do_not_track")
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val TEXT_ZOOM = intPreferencesKey("text_zoom")
-        val FORCE_DARK = booleanPreferencesKey("force_dark")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -61,8 +59,7 @@ class SettingsDataStore @Inject constructor(
             loadImages = prefs[Keys.LOAD_IMAGES] ?: true,
             doNotTrack = prefs[Keys.DO_NOT_TRACK] ?: true,
             useDynamicColor = prefs[Keys.DYNAMIC_COLOR] ?: true,
-            textZoom = prefs[Keys.TEXT_ZOOM] ?: 100,
-            forceDarkMode = prefs[Keys.FORCE_DARK] ?: false
+            textZoom = prefs[Keys.TEXT_ZOOM] ?: 100
         )
     }
 
@@ -96,9 +93,5 @@ class SettingsDataStore @Inject constructor(
 
     suspend fun setTextZoom(zoom: Int) {
         context.dataStore.edit { it[Keys.TEXT_ZOOM] = zoom }
-    }
-
-    suspend fun setForceDarkMode(enabled: Boolean) {
-        context.dataStore.edit { it[Keys.FORCE_DARK] = enabled }
     }
 }

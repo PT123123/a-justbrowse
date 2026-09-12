@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.os.Message
 import android.util.Log
@@ -45,13 +44,6 @@ class BrowserEngine(
 
         /** 暗色背景色（加载中/兜底底色） */
         private val DARK_BG = android.graphics.Color.parseColor("#121212")
-
-        /**
-         * 原生算法暗色是否可用。
-         * WebSettings.setForceDark 需要 API 29+（Android 10+），
-         * 测试平板 Android 15 可用；API < 29 回退到 CSS filter 注入。
-         */
-        private val NATIVE_DARK = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
     }
 
     var webView: WebView? = null
@@ -59,43 +51,35 @@ class BrowserEngine(
 
     private var appContext: Context? = null
 
-    /** 是否启用强制暗色模式 */
+    /**
+     * 是否启用强制暗色（App 暗色主题开启时由上层同步进来）。
+     *
+     * 实现走 [DarkModeInjector] 的 CSS 注入 + WebView 背景色，**即时生效、不需要 reload**。
+     *
+     * 这里刻意不用 `WebSettings.setForceDark`：官方文档说明该 API 及其 `FORCE_DARK_ON`
+     * 在 `targetSdkVersion >= 33` 的应用里是 no-op，而本项目 targetSdk = 34，
+     * 用了等于没写 —— 之前「暗色模式没反应」就是踩在这上面。
+     */
     var forceDarkMode: Boolean = false
         set(value) {
             if (field == value) return
             field = value
-            Log.d(TAG, "forceDarkMode -> $value (nativeDark=$NATIVE_DARK)")
-            if (NATIVE_DARK) {
-                applyNativeDarkMode()
-            } else {
-                applyCssDarkMode()
-            }
+            Log.d(TAG, "forceDarkMode -> $value")
+            applyDarkMode()
         }
 
-    /**
-     * 原生算法暗色（API 29+）：
-     * 直接改 WebSettings.forceDark + 背景色，然后 reload 让渲染线程以新模式重绘。
-     * 网站自带暗色主题时优先使用其主题（默认策略），否则算法压暗。
-     */
-    private fun applyNativeDarkMode() {
+    /** 本轮加载是否已经注入过暗色样式（避免 progress 回调里反复注入/刷日志） */
+    private var darkInjectedThisLoad = false
+
+    /** 即时生效：改背景色 + 注入/移除暗色样式。 */
+    private fun applyDarkMode() {
         val wv = webView ?: return
-        wv.settings.forceDark = if (forceDarkMode) WebSettings.FORCE_DARK_ON else WebSettings.FORCE_DARK_OFF
-        wv.setBackgroundColor(if (forceDarkMode) DARK_BG else android.graphics.Color.WHITE)
-        val current = wv.url
-        if (!current.isNullOrEmpty() && current != "about:blank") {
-            Log.d(TAG, "reload for dark mode switch: $current")
-            wv.reload()
-        }
-    }
-
-    /** CSS filter 兜底（API < 29）：即时注入/移除，无需刷新。 */
-    private fun applyCssDarkMode() {
         if (forceDarkMode) {
+            wv.setBackgroundColor(DARK_BG)
             DarkModeInjector.inject(this)
-            webView?.setBackgroundColor(DARK_BG)
         } else {
+            wv.setBackgroundColor(android.graphics.Color.WHITE)
             DarkModeInjector.remove(this)
-            webView?.setBackgroundColor(android.graphics.Color.WHITE)
         }
     }
 
@@ -164,10 +148,6 @@ class BrowserEngine(
             }
             webViewClient = JustBrowseWebViewClient()
             webChromeClient = JustBrowseWebChromeClient()
-            if (NATIVE_DARK) {
-                // 原生算法暗色：创建 WebView 时按当前开关设置（此后 toggle 需 reload 生效）
-                settings.forceDark = if (forceDarkMode) WebSettings.FORCE_DARK_ON else WebSettings.FORCE_DARK_OFF
-            }
             if (forceDarkMode) {
                 setBackgroundColor(DARK_BG)
             } else {
@@ -205,8 +185,8 @@ class BrowserEngine(
         if (currentUrl.isNotEmpty() && currentUrl != "about:blank") {
             wv.loadUrl(currentUrl)
         }
-        // 如果已开启暗色模式且无原生支持，立即注入 CSS（原生路径由 forceDark 设置负责）
-        if (forceDarkMode && !NATIVE_DARK) {
+        // 打开暗色时立即注入 CSS（背景色已在 createWebView 里按当前开关设好）
+        if (forceDarkMode) {
             DarkModeInjector.inject(this)
         }
     }
@@ -312,6 +292,7 @@ class BrowserEngine(
             _errorCode.value = null
             // 每次新导航都允许重新注入（否则同 URL 刷新/重定向后 CSS 暗色与用户脚本不会重挂）
             lastInjectedUrl = null
+            darkInjectedThisLoad = false
             onPageStartedListener?.invoke(url)
         }
 
@@ -330,8 +311,8 @@ class BrowserEngine(
             _canGoForward.value = view.canGoForward()
             onPageFinishedListener?.invoke(url, _title.value)
             injectElementHidingCss(view, url)
-            // CSS 注入仅作为 API < 29 的兜底；原生路径由 setForceDark 负责，避免双重压暗
-            if (forceDarkMode && !NATIVE_DARK) {
+            // 兜底再注入一次：DOM 在这一刻一定完整
+            if (forceDarkMode) {
                 DarkModeInjector.inject(this@BrowserEngine)
             }
             scriptInjector.inject(this@BrowserEngine, url, UserScript.RunAt.DOCUMENT_IDLE)
@@ -339,10 +320,10 @@ class BrowserEngine(
 
         /**
          * SPA（history.pushState 等）导航不会触发 onPageStarted/onPageFinished，
-         * 在 CSS 兜底路径下重新注入，保证单页应用切页后暗色仍生效。
+         * 在这里重新注入，保证单页应用切页后暗色仍生效。
          */
         override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
-            if (forceDarkMode && !NATIVE_DARK) {
+            if (forceDarkMode) {
                 DarkModeInjector.inject(this@BrowserEngine)
             }
         }
@@ -379,6 +360,11 @@ class BrowserEngine(
     private inner class JustBrowseWebChromeClient : WebChromeClient() {
         override fun onProgressChanged(view: WebView, newProgress: Int) {
             _progress.value = newProgress
+            // 尽早注入暗色样式：progress 刚起步时 DOM 已可用，能明显压掉白底闪一下
+            if (forceDarkMode && !darkInjectedThisLoad && newProgress >= 5) {
+                darkInjectedThisLoad = true
+                DarkModeInjector.inject(this@BrowserEngine)
+            }
             if (newProgress in 25..35) {
                 scriptInjector.inject(
                     this@BrowserEngine,

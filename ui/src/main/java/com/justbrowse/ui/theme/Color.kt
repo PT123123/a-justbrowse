@@ -14,4 +14,10 @@ val Pink40 = Color(0xFF7D5260)
 val BrowserBlue = Color(0xFF1A73E8)
 val BrowserBlueDark = Color(0xFF0B57D0)
 val SurfaceLight = Color(0xFFFFFBFE)
-val SurfaceDark = Color(0xFF1C1B1F)
+val SurfaceDark = Color(0xFF121212)
+
+/**
+ * 暗色主题的次级表面（地址栏胶囊、标签卡片底色等）。
+ * 与 [SurfaceDark] 拉开一点层次，避免整屏一个色。
+ */
+val DarkSurfaceVariant = Color(0xFF26262B)
