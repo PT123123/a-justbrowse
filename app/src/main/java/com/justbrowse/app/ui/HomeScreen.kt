@@ -203,6 +203,15 @@ fun HomeScreen(
                     color = if (focused) accent else searchStroke,
                     shape = RoundedCornerShape(16.dp)
                 )
+                // 点击搜索卡空白处/图标区域也要聚焦输入框：
+                // 装饰气泡行（horizontalScroll）会拦截点击，输入框自身收不到焦点，
+                // 这里在卡片层面兜底补一次聚焦（气泡行内部点击单独处理，见下）。
+                .pointerInput(Unit) {
+                    detectTapGestures {
+                        activeWi = -1
+                        focusRequester.requestFocus()
+                    }
+                }
         ) {
             // 真实输入层（文本透明，仅光标可见）
             BasicTextField(
@@ -257,7 +266,12 @@ fun HomeScreen(
                     modifier = Modifier
                         .weight(1f)
                         .horizontalScroll(bubbleScroll)
-                        .height(34.dp),
+                        .height(34.dp)
+                        // horizontalScroll 的可滚动层会抢走点击、导致输入框无法聚焦，
+                        // 在气泡行自身补一个点按聚焦（气泡自身点击仍是选中/删除）。
+                        .pointerInput(Unit) {
+                            detectTapGestures { focusRequester.requestFocus() }
+                        },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (tfValue.text.isEmpty() && !focused) {
