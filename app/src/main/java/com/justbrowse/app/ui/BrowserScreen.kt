@@ -1,27 +1,11 @@
 package com.justbrowse.app.ui
 
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.ViewWeek
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -29,15 +13,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * v3 夸克式主界面：
+ * WebView 全屏展示，顶部无应用栏；底部常驻一条长地址栏 + 标签计数按钮 + 更多菜单。
+ * 点击标签按钮展开标签面板，点击地址栏进入搜索覆盖层。
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun BrowserScreen(
-    forceDarkMode: Boolean = false,
-    onForceDarkModeChanged: (Boolean) -> Unit = {},
+    darkMode: Boolean = false,
+    onDarkModeChanged: (Boolean) -> Unit = {},
     viewModel: BrowserViewModel = hiltViewModel(),
     onNavigateToHistory: () -> Unit = {},
     onNavigateToBookmarks: () -> Unit = {},
@@ -53,189 +43,154 @@ fun BrowserScreen(
     val showSuggestions by viewModel.showSuggestions.collectAsState()
     val isBookmarked by viewModel.isBookmarked.collectAsState()
     val searchEngine by viewModel.searchEngine.collectAsState()
+    val findQuery by viewModel.findQuery.collectAsState()
 
-    LaunchedEffect(viewModel) {
-        viewModel.onDarkModeToggled = { enabled ->
-            onForceDarkModeChanged(enabled)
-        }
-    }
-
-    LaunchedEffect(forceDarkMode) {
-        if (viewModel.forceDarkMode != forceDarkMode) {
-            viewModel.forceDarkMode = forceDarkMode
-            viewModel.syncDarkModeToEngines()
-        }
-    }
+    var showTabSheet by remember { mutableStateOf(false) }
+    var showSearchOverlay by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = state.title.ifEmpty { "JustBrowse" },
-                        maxLines = 1
-                    )
-                },
-                actions = {
-                    IconButton(onClick = { viewModel.showFindInPage() }) {
-                        Icon(Icons.Default.Search, contentDescription = "Find in page")
-                    }
-                    IconButton(onClick = { viewModel.onToggleDarkMode() }) {
-                        Icon(
-                            if (viewModel.forceDarkMode) Icons.Default.DarkMode else Icons.Default.LightMode,
-                            contentDescription = "Toggle dark mode",
-                            tint = if (viewModel.forceDarkMode) MaterialTheme.colorScheme.primary else LocalContentColor.current
-                        )
-                    }
-                    IconButton(onClick = { viewModel.toggleReadingMode() }) {
-                        Icon(
-                            Icons.Default.ViewWeek,
-                            contentDescription = "Reading mode",
-                            tint = if (viewModel.isReadingMode.value) MaterialTheme.colorScheme.primary else LocalContentColor.current
-                        )
-                    }
-                    IconButton(onClick = onNavigateToBookmarks) {
-                        Icon(Icons.Default.Bookmark, contentDescription = "Bookmarks")
-                    }
-                    IconButton(onClick = onNavigateToHistory) {
-                        Icon(Icons.Default.History, contentDescription = "History")
-                    }
-                    IconButton(onClick = { showMenu = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "Menu")
-                    }
-                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                        DropdownMenuItem(
-                            text = { Text("New Tab") },
-                            onClick = {
-                                showMenu = false
-                                viewModel.openNewTab("about:blank")
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Tab Overview") },
-                            onClick = {
-                                showMenu = false
-                                onNavigateToTabOverview()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Bookmarks") },
-                            onClick = {
-                                showMenu = false
-                                onNavigateToBookmarks()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("History") },
-                            onClick = {
-                                showMenu = false
-                                onNavigateToHistory()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Scripts") },
-                            onClick = {
-                                showMenu = false
-                                onNavigateToScripts()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Downloads") },
-                            onClick = {
-                                showMenu = false
-                                onNavigateToDownloads()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Permissions") },
-                            onClick = {
-                                showMenu = false
-                                onNavigateToPermissions()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Ad Rules") },
-                            onClick = {
-                                showMenu = false
-                                onNavigateToAdRules()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Settings") },
-                            onClick = {
-                                showMenu = false
-                                onNavigateToSettings()
-                            }
-                        )
-                    }
-                }
-            )
-        },
-        bottomBar = {
-            TabBar(
-                tabs = state.tabs,
-                activeTabId = state.activeTab?.id,
-                onTabClick = viewModel::switchTab,
-                onTabClose = viewModel::closeTab,
-                onNewTab = { viewModel.openNewTab("about:blank") },
-                onOverview = onNavigateToTabOverview,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            AddressBar(
-                url = state.activeUrl,
-                title = state.title,
-                progress = state.progress,
-                canGoBack = state.canGoBack,
-                canGoForward = state.canGoForward,
-                isLoading = state.isLoading,
-                suggestions = suggestions,
-                showSuggestions = showSuggestions,
-                isBookmarked = isBookmarked,
-                searchEngine = searchEngine,
-                onUrlChange = viewModel::updateAddressBar,
-                onSubmit = viewModel::submitAddressBar,
-                onSuggestionClick = viewModel::onSuggestionClick,
-                onDismissSuggestions = viewModel::hideSuggestions,
-                onBack = viewModel::goBack,
-                onForward = viewModel::goForward,
-                onReload = viewModel::reload,
-                onHome = viewModel::goHome,
-                onToggleBookmark = viewModel::toggleBookmark,
-                onSearchEngineChange = viewModel::setSearchEngine,
-                onClearHistory = viewModel::clearHistory
-            )
+    // App 的暗色状态是唯一来源，同步给所有 WebView 引擎（网页内容跟着一起变暗）
+    LaunchedEffect(darkMode) {
+        viewModel.setDarkMode(darkMode)
+    }
 
-            if (state.showFindInPage) {
-                FindInPageBar(
-                    query = viewModel.findQuery.collectAsState().value,
-                    onQueryChange = viewModel::updateFindQuery,
-                    onClose = viewModel::hideFindInPage
+    Box(modifier = Modifier.fillMaxSize()) {
+
+        // ===== WebView 内容区（全屏，主屏时隐藏） =====
+        val activeTabId = state.activeTab?.id
+        val isHome = state.activeUrl.isEmpty()
+        if (activeTabId != null && !isHome) {
+            val engine = viewModel.getEngine(activeTabId)
+            if (engine != null) {
+                LaunchedEffect(engine, activeTabId) {
+                    viewModel.bindEngine(engine, activeTabId)
+                }
+                WebViewContainer(
+                    engine = engine,
+                    modifier = Modifier.fillMaxSize()
                 )
             }
-
-            val activeTabId = state.activeTab?.id
-            if (activeTabId != null) {
-                val engine = viewModel.getEngine(activeTabId)
-                if (engine != null) {
-                    LaunchedEffect(engine, activeTabId) {
-                        viewModel.bindEngine(engine, activeTabId)
-                    }
-                    WebViewContainer(
-                        engine = engine,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                    )
-                }
-            }
         }
+
+        // ===== 夸克式主屏（about:blank 时显示：气泡搜索 + 滑动定位 + 快捷图标） =====
+        if (isHome) {
+            HomeScreen(
+                onOpenUrl = viewModel::loadUrlFromInput,
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
+        }
+
+        // ===== 加载进度条 =====
+        if (state.isLoading && state.progress in 1..99) {
+            LinearProgressIndicator(
+                progress = { state.progress / 100f },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+            )
+        }
+
+        // ===== 页内查找悬浮条 =====
+        if (state.showFindInPage) {
+            FindInPageBar(
+                query = findQuery,
+                onQueryChange = viewModel::updateFindQuery,
+                onClose = viewModel::hideFindInPage,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 6.dp)
+            )
+        }
+
+        // ===== 底部停靠栏 =====
+        BottomDock(
+            state = state,
+            isBookmarked = isBookmarked,
+            darkMode = darkMode,
+            showMenu = showMenu,
+            onCapsuleClick = { showSearchOverlay = true },
+            onTabClick = { showTabSheet = true },
+            onBack = viewModel::goBack,
+            onForward = viewModel::goForward,
+            onReload = viewModel::reload,
+            onStopLoading = viewModel::stopLoading,
+            onToggleBookmark = viewModel::toggleBookmark,
+            onMenuClick = { showMenu = true },
+            onMenuDismiss = { showMenu = false },
+            onMenuHome = {
+                showMenu = false
+                viewModel.goHome()
+            },
+            onMenuRefresh = {
+                showMenu = false
+                viewModel.reload()
+            },
+            onMenuFind = {
+                showMenu = false
+                viewModel.showFindInPage()
+            },
+            onMenuDark = {
+                showMenu = false
+                onDarkModeChanged(!darkMode)
+            },
+            onMenuBookmarks = {
+                showMenu = false
+                onNavigateToBookmarks()
+            },
+            onMenuHistory = {
+                showMenu = false
+                onNavigateToHistory()
+            },
+            onMenuSettings = {
+                showMenu = false
+                onNavigateToSettings()
+            },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
+    }
+
+    // ===== 搜索覆盖层 =====
+    if (showSearchOverlay) {
+        SearchOverlay(
+            initialUrl = state.activeUrl.takeIf { it != "about:blank" } ?: "",
+            suggestions = suggestions,
+            showSuggestions = showSuggestions,
+            searchEngine = searchEngine,
+            onDismiss = {
+                showSearchOverlay = false
+                viewModel.hideSuggestions()
+            },
+            onUrlChange = viewModel::updateAddressBar,
+            onSubmit = {
+                showSearchOverlay = false
+                viewModel.submitAddressBar()
+            },
+            onSuggestionClick = { url ->
+                showSearchOverlay = false
+                viewModel.onSuggestionClick(url)
+            },
+            onSearchEngineChange = viewModel::setSearchEngine,
+            onClearHistory = viewModel::clearHistory
+        )
+    }
+
+    // ===== 标签展开面板 =====
+    if (showTabSheet) {
+        TabSheet(
+            tabs = state.tabs,
+            activeTabId = state.activeTab?.id,
+            getEngine = viewModel::getEngine,
+            onTabClick = { id ->
+                viewModel.switchTab(id)
+                showTabSheet = false
+            },
+            onTabClose = viewModel::closeTab,
+            onNewTab = {
+                viewModel.openNewTab()
+                showTabSheet = false
+            },
+            onDismiss = { showTabSheet = false }
+        )
     }
 }

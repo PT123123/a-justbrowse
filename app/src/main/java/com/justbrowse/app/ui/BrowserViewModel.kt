@@ -129,26 +129,29 @@ class BrowserViewModel @Inject constructor(
         }
     }
 
-    var forceDarkMode: Boolean = false
+    /** 当前是否暗色模式（由 App 主题推导后同步进来，见 BrowserScreen）。 */
+    var darkMode: Boolean = false
+        private set
 
-    var onDarkModeToggled: ((Boolean) -> Unit)? = null
-
-    fun onToggleDarkMode() {
-        val newValue = !forceDarkMode
-        forceDarkMode = newValue
-        Log.d("JustBrowse", "onToggleDarkMode: $newValue")
+    /**
+     * 同步暗色状态到所有 WebView 引擎 —— 让网页内容跟 App 主题一起变暗，
+     * 避免出现「界面黑了、网页还是白的」这种半截暗色。
+     */
+    fun setDarkMode(enabled: Boolean) {
+        if (darkMode == enabled) return
+        darkMode = enabled
+        Log.d("JustBrowse", "setDarkMode: $enabled")
         syncDarkModeToEngines()
-        onDarkModeToggled?.invoke(newValue)
     }
 
     fun syncDarkModeToEngines() {
         tabManager.tabs.value.forEach { tab ->
-            tabManager.getEngine(tab.id)?.forceDarkMode = forceDarkMode
+            tabManager.getEngine(tab.id)?.forceDarkMode = darkMode
         }
     }
 
     fun bindEngine(engine: BrowserEngine, tabId: String) {
-        engine.forceDarkMode = forceDarkMode
+        engine.forceDarkMode = darkMode
         engine.onPageFinishedListener = { url, title ->
             viewModelScope.launch {
                 historyRepository.recordVisit(url, title, null)
@@ -192,6 +195,14 @@ class BrowserViewModel @Inject constructor(
         if (raw.isEmpty()) return
         _showSuggestions.value = false
         val url = normalizeUrl(raw, searchEngine.value)
+        tabManager.getActiveEngine()?.loadUrl(url)
+    }
+
+    /** 主屏搜索卡 / 快捷图标：把用户输入（网址或关键词）交给当前标签页加载 */
+    fun loadUrlFromInput(raw: String) {
+        val input = raw.trim()
+        if (input.isEmpty()) return
+        val url = normalizeUrl(input, searchEngine.value)
         tabManager.getActiveEngine()?.loadUrl(url)
     }
 

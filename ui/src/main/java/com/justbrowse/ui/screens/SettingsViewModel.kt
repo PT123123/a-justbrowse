@@ -55,10 +55,6 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsDataStore.setTextZoom(zoom) }
     }
 
-    fun setForceDarkMode(enabled: Boolean) {
-        viewModelScope.launch { settingsDataStore.setForceDarkMode(enabled) }
-    }
-
     fun clearBrowsingData() {
         viewModelScope.launch {
             historyRepository.clearAll()
