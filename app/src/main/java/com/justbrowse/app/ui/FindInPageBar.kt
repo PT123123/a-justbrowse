@@ -33,7 +33,7 @@ fun FindInPageBar(
             value = query,
             onValueChange = onQueryChange,
             modifier = Modifier.weight(1f),
-            placeholder = { Text("Find in page") },
+            placeholder = { Text("页内查找") },
             singleLine = true
         )
         IconButton(onClick = { /* previous match — WebView.findAsync 单次，需要自行实现前后 */ }) {

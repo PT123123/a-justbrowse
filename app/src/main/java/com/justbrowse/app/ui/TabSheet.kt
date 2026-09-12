@@ -136,7 +136,7 @@ fun TabSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Tabs",
+                    text = "标签",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -146,7 +146,7 @@ fun TabSheet(
                 }
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = onDismiss) {
-                    Text("Done")
+                    Text("完成")
                 }
             }
 
@@ -190,7 +190,7 @@ fun TabSheet(
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = "New tab",
+                        text = "新建标签",
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.SemiBold
                     )
