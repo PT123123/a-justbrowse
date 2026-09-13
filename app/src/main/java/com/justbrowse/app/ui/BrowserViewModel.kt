@@ -10,6 +10,7 @@ import android.webkit.URLUtil
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.justbrowse.core.scripts.ScriptInjector
 import com.justbrowse.core.webview.BrowserEngine
 import com.justbrowse.core.webview.TabManager
 import com.justbrowse.data.prefs.SearchEngine
@@ -55,25 +56,31 @@ class BrowserViewModel @Inject constructor(
     private val historyRepository: HistoryRepository,
     private val bookmarkRepository: BookmarkRepository,
     private val settingsDataStore: SettingsDataStore,
+    private val scriptInjector: ScriptInjector,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
+    private val _showFindInPageInternal = MutableStateFlow(false)
+
     val uiState: StateFlow<BrowserUiState> = kotlinx.coroutines.flow.combine(
         tabManager.tabs,
-        tabManager.activeTab,
-        tabManager.activeTabId
-    ) { tabs, activeTab, _ ->
-        val engine = tabManager.getActiveEngine()
+        tabManager.activeTabId,
+        tabManager.activeEngineSnapshot,
+        _showFindInPageInternal
+    ) { tabs, activeTabId, snapshot, showFind ->
+        val activeTab = activeTabId?.let { id -> tabs.firstOrNull { it.id == id } }
         BrowserUiState(
             tabs = tabs,
             activeTab = activeTab,
-            activeUrl = (engine?.url?.value ?: activeTab?.url).takeIf { it != null && it != "about:blank" } ?: "",
-            title = engine?.title?.value ?: activeTab?.title ?: "",
-            progress = engine?.progress?.value ?: 0,
-            canGoBack = engine?.canGoBack?.value ?: false,
-            canGoForward = engine?.canGoForward?.value ?: false,
-            isLoading = engine?.isLoading?.value ?: false,
-            hasError = engine?.errorCode?.value != null
+            activeUrl = (snapshot?.url ?: activeTab?.url)
+                .takeIf { it != null && it != "about:blank" } ?: "",
+            title = snapshot?.title?.takeIf { it.isNotEmpty() } ?: activeTab?.title ?: "",
+            progress = snapshot?.progress ?: 0,
+            canGoBack = snapshot?.canGoBack ?: false,
+            canGoForward = snapshot?.canGoForward ?: false,
+            isLoading = snapshot?.isLoading ?: false,
+            hasError = snapshot?.errorCode != null,
+            showFindInPage = showFind
         )
     }.stateIn(
         scope = viewModelScope,
@@ -84,8 +91,9 @@ class BrowserViewModel @Inject constructor(
     private val _addressBarUrl = MutableStateFlow("")
     val addressBarUrl: StateFlow<String> = _addressBarUrl.asStateFlow()
 
-    private val _showFindInPage = MutableStateFlow(false)
-    val showFindInPage: StateFlow<Boolean> = _showFindInPage.asStateFlow()
+    /** 页内查找结果：(当前第几处, 总匹配数)；查询变化或关闭时置空 */
+    private val _findResult = MutableStateFlow<Pair<Int, Int>?>(null)
+    val findResult: StateFlow<Pair<Int, Int>?> = _findResult.asStateFlow()
 
     private val _findQuery = MutableStateFlow("")
     val findQuery: StateFlow<String> = _findQuery.asStateFlow()
@@ -126,6 +134,13 @@ class BrowserViewModel @Inject constructor(
                     checkBookmarkStatus(url)
                 }
             }
+        }
+        // GM 桥的原生侧落点：油猴脚本 GM_openInTab / GM_addStyle 的实际行为
+        scriptInjector.bridge.onOpenInTab = { url ->
+            tabManager.openTab(url, activate = true)
+        }
+        scriptInjector.bridge.onAddStyle = { css ->
+            tabManager.getActiveEngine()?.addUserCss(css)
         }
     }
 
@@ -172,6 +187,9 @@ class BrowserViewModel @Inject constructor(
         }
         engine.onDownloadListener = { url, userAgent, contentDisposition, mimeType, contentLength ->
             handleDownload(url, userAgent, contentDisposition, mimeType, contentLength)
+        }
+        engine.onFindResult = { ordinal, total ->
+            _findResult.value = ordinal to total
         }
     }
 
@@ -296,19 +314,25 @@ class BrowserViewModel @Inject constructor(
 
     fun getEngine(tabId: String): BrowserEngine? = tabManager.getEngine(tabId)
 
-    fun showFindInPage() { _showFindInPage.value = true }
+    fun showFindInPage() { _showFindInPageInternal.value = true }
     fun hideFindInPage() {
-        _showFindInPage.value = false
+        _showFindInPageInternal.value = false
         _findQuery.value = ""
+        _findResult.value = null
         tabManager.getActiveEngine()?.clearFind()
     }
     fun updateFindQuery(query: String) {
         _findQuery.value = query
+        _findResult.value = null
         if (query.isNotEmpty()) {
             tabManager.getActiveEngine()?.findInPage(query)
         } else {
             tabManager.getActiveEngine()?.clearFind()
         }
+    }
+
+    fun findNext(forward: Boolean) {
+        tabManager.getActiveEngine()?.findNext(forward)
     }
 
     fun clearHistory() {

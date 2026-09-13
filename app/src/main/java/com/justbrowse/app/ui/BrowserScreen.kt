@@ -2,11 +2,16 @@ package com.justbrowse.app.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -16,8 +21,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * v3 夸克式主界面：
@@ -30,11 +38,14 @@ fun BrowserScreen(
     darkMode: Boolean = false,
     onDarkModeChanged: (Boolean) -> Unit = {},
     viewModel: BrowserViewModel = hiltViewModel(),
+    pendingUrl: StateFlow<String> = MutableStateFlow(""),
+    onPendingUrlConsumed: () -> Unit = {},
     onNavigateToHistory: () -> Unit = {},
     onNavigateToBookmarks: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onNavigateToScripts: () -> Unit = {},
     onNavigateToDownloads: () -> Unit = {},
+    onNavigateToSync: () -> Unit = {},
     onNavigateToTabOverview: () -> Unit = {},
     onNavigateToPermissions: () -> Unit = {},
     onNavigateToAdRules: () -> Unit = {}
@@ -45,12 +56,23 @@ fun BrowserScreen(
     val isBookmarked by viewModel.isBookmarked.collectAsState()
     val searchEngine by viewModel.searchEngine.collectAsState()
     val findQuery by viewModel.findQuery.collectAsState()
+    val findResult by viewModel.findResult.collectAsState()
+    val awaitingUrl by pendingUrl.collectAsState()
 
     var showTabSheet by remember { mutableStateOf(false) }
     var showSearchOverlay by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
 
     val isHome = state.activeUrl.isEmpty()
+
+    // 书签/历史页点击的 URL 经 savedStateHandle 带回来，回到本屏后打开
+    LaunchedEffect(awaitingUrl) {
+        val url = awaitingUrl
+        if (url.isNotEmpty()) {
+            viewModel.loadUrlFromInput(url)
+            onPendingUrlConsumed()
+        }
+    }
 
     // 系统返回键：先收起浮层，再网页后退（退不出则回主页）；
     // 首页不拦截，交还系统（退出应用）。
@@ -114,11 +136,26 @@ fun BrowserScreen(
             )
         }
 
+        // ===== 错误页（主文档加载失败时盖在 WebView 默认错误页上） =====
+        if (!isHome && state.hasError) {
+            ErrorOverlay(
+                url = state.activeUrl,
+                onRetry = viewModel::reload,
+                onBackHome = {
+                    viewModel.goHome()
+                },
+                modifier = Modifier.align(Alignment.Center)
+            )
+        }
+
         // ===== 页内查找悬浮条 =====
         if (state.showFindInPage) {
             FindInPageBar(
                 query = findQuery,
+                matchInfo = findResult?.let { (ordinal, total) -> "$ordinal/$total" },
                 onQueryChange = viewModel::updateFindQuery,
+                onPrevious = { viewModel.findNext(false) },
+                onNext = { viewModel.findNext(true) },
                 onClose = viewModel::hideFindInPage,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -165,6 +202,18 @@ fun BrowserScreen(
             onMenuHistory = {
                 showMenu = false
                 onNavigateToHistory()
+            },
+            onMenuScripts = {
+                showMenu = false
+                onNavigateToScripts()
+            },
+            onMenuDownloads = {
+                showMenu = false
+                onNavigateToDownloads()
+            },
+            onMenuSync = {
+                showMenu = false
+                onNavigateToSync()
             },
             onMenuSettings = {
                 showMenu = false
@@ -216,5 +265,46 @@ fun BrowserScreen(
             },
             onDismiss = { showTabSheet = false }
         )
+    }
+}
+
+@Composable
+private fun ErrorOverlay(
+    url: String,
+    onRetry: () -> Unit,
+    onBackHome: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .widthIn(max = 320.dp)
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "网页加载失败",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = url,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+        Text(
+            text = "请检查网络连接后重试",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        TextButton(onClick = onRetry, modifier = Modifier.padding(top = 12.dp)) {
+            Text("重试")
+        }
+        TextButton(onClick = onBackHome) {
+            Text("返回主页")
+        }
     }
 }

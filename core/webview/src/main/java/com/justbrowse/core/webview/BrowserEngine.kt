@@ -71,6 +71,9 @@ class BrowserEngine(
     /** 本轮加载是否已经注入过暗色样式（避免 progress 回调里反复注入/刷日志） */
     private var darkInjectedThisLoad = false
 
+    /** 最近一次由 TabManager 下发的全局浏览设置（WebView 惰性创建，需暂存到 createWebView 时应用） */
+    private var pendingSettings = EngineWebSettings()
+
     /** 即时生效：改背景色 + 注入/移除暗色样式。 */
     private fun applyDarkMode() {
         val wv = webView ?: return
@@ -122,6 +125,9 @@ class BrowserEngine(
     /** 外部链接处理（Custom Tabs 兜底） */
     var onExternalLinkListener: ((uri: Uri) -> Unit)? = null
 
+    /** 页内查找结果回调（参数：当前第几处、总匹配数；无匹配时不回调） */
+    var onFindResult: ((activeOrdinal: Int, totalMatches: Int) -> Unit)? = null
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView(context: Context): WebView {
         val wv = WebView(context).apply {
@@ -145,6 +151,13 @@ class BrowserEngine(
                 userAgentString = "$userAgentString JustBrowse/0.1"
                 allowFileAccess = true
                 CookieManager.getInstance().setAcceptCookie(true)
+            }
+            applyEngineSettings(this)
+            // 页内查找计数：驱动查找条上的「第 x 处 / 共 y 处」
+            setFindListener { activeOrdinal, numberOfMatches, _ ->
+                if (numberOfMatches > 0) {
+                    onFindResult?.invoke(activeOrdinal + 1, numberOfMatches)
+                }
             }
             webViewClient = JustBrowseWebViewClient()
             webChromeClient = JustBrowseWebChromeClient()
@@ -183,7 +196,7 @@ class BrowserEngine(
         // WebView 重建时加载当前 URL（而非构造时的 initialUrl）
         val currentUrl = _url.value
         if (currentUrl.isNotEmpty() && currentUrl != "about:blank") {
-            wv.loadUrl(currentUrl)
+            loadUrl(currentUrl)
         }
         // 打开暗色时立即注入 CSS（背景色已在 createWebView 里按当前开关设好）
         if (forceDarkMode) {
@@ -198,7 +211,11 @@ class BrowserEngine(
     fun loadUrl(url: String) {
         _url.value = url
         _errorCode.value = null
-        webView?.loadUrl(url)
+        if (pendingSettings.doNotTrack) {
+            webView?.loadUrl(url, dntHeaders())
+        } else {
+            webView?.loadUrl(url)
+        }
     }
 
     fun reload() {
@@ -258,8 +275,68 @@ class BrowserEngine(
         webView?.findAllAsync(text)
     }
 
+    fun findNext(forward: Boolean) {
+        webView?.findNext(forward)
+    }
+
     fun clearFind() {
         webView?.clearMatches()
+    }
+
+    /** 设置变更时由 TabManager 调用：立即作用于已创建的 WebView，并暂存给未来创建的 WebView */
+    fun applyLiveSettings(settings: EngineWebSettings) {
+        pendingSettings = settings
+        webView?.let { applyEngineSettings(it) }
+    }
+
+    /** GM_addStyle：向当前页面追加一段用户 CSS */
+    fun addUserCss(css: String) {
+        val wv = webView ?: return
+        val escaped = css.replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace("\r", "")
+            .replace("\n", "\\n")
+        val js = "(function(){var s=document.createElement('style');s.setAttribute('data-gm-style','1');" +
+            "s.textContent='$escaped';document.head.appendChild(s);})();"
+        wv.evaluateJavascript(js) {}
+    }
+
+    /** 广告拦截开关切换后调用：立即注入或移除当前页面的元素隐藏 CSS */
+    fun refreshAdblockCss() {
+        val wv = webView ?: return
+        val url = _url.value
+        if (url.isEmpty() || url == "about:blank") return
+        applyElementHidingCss(wv, interceptor.getElementHidingCss(extractDomain(url)))
+    }
+
+    private fun applyEngineSettings(wv: WebView) {
+        wv.settings.apply {
+            javaScriptEnabled = pendingSettings.javascriptEnabled
+            loadsImagesAutomatically = pendingSettings.loadImages
+            blockNetworkImage = !pendingSettings.loadImages
+            textZoom = pendingSettings.textZoom
+        }
+    }
+
+    private fun dntHeaders(): Map<String, String> = mapOf("DNT" to "1", "Sec-GPC" to "1")
+
+    private fun extractDomain(url: String): String {
+        return url.removePrefix("http://")
+            .removePrefix("https://")
+            .removePrefix("www.")
+            .substringBefore("/")
+            .substringBefore(":")
+    }
+
+    private fun applyElementHidingCss(view: WebView, css: String) {
+        val escapedCss = css.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
+        val js = if (css.isEmpty()) {
+            "(function(){var e=document.getElementById('justbrowse-adblock');if(e&&e.parentNode)e.parentNode.removeChild(e);})();"
+        } else {
+            "(function(){var s=document.getElementById('justbrowse-adblock')||document.createElement('style');" +
+                "s.id='justbrowse-adblock';s.textContent='$escapedCss';document.head.appendChild(s);})();"
+        }
+        view.evaluateJavascript(js) {}
     }
 
     private inner class JustBrowseWebViewClient : WebViewClient() {
@@ -267,6 +344,13 @@ class BrowserEngine(
             val uri = request.url
             if (uri.scheme !in setOf("http", "https", "file", "about")) {
                 onExternalLinkListener?.invoke(uri)
+                return true
+            }
+            // DNT 请求头无法全局注入：主文档导航在这里重新派发，让每次跳转都带上请求头
+            if (request.isForMainFrame && pendingSettings.doNotTrack &&
+                uri.scheme in setOf("http", "https")
+            ) {
+                view.loadUrl(uri.toString(), dntHeaders())
                 return true
             }
             return false
@@ -310,7 +394,7 @@ class BrowserEngine(
             _canGoBack.value = view.canGoBack()
             _canGoForward.value = view.canGoForward()
             onPageFinishedListener?.invoke(url, _title.value)
-            injectElementHidingCss(view, url)
+            applyElementHidingCss(view, interceptor.getElementHidingCss(extractDomain(url)))
             // 兜底再注入一次：DOM 在这一刻一定完整
             if (forceDarkMode) {
                 DarkModeInjector.inject(this@BrowserEngine)
@@ -326,22 +410,6 @@ class BrowserEngine(
             if (forceDarkMode) {
                 DarkModeInjector.inject(this@BrowserEngine)
             }
-        }
-
-        private fun injectElementHidingCss(view: WebView, url: String) {
-            val css = interceptor.getElementHidingCss(extractDomain(url))
-            if (css.isEmpty()) return
-            val escapedCss = css.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
-            val js = "(function(){var s=document.createElement('style');s.id='justbrowse-adblock';s.textContent='$escapedCss';document.head.appendChild(s);})();"
-            view.evaluateJavascript(js) {}
-        }
-
-        private fun extractDomain(url: String): String {
-            return url.removePrefix("http://")
-                .removePrefix("https://")
-                .removePrefix("www.")
-                .substringBefore("/")
-                .substringBefore(":")
         }
 
         override fun onReceivedError(

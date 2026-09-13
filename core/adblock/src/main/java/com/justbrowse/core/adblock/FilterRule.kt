@@ -51,12 +51,15 @@ sealed class FilterRule {
                 isDomainAnchor -> {
                     // ||example.com/path 匹配任何协议+example.com+path
                     val cleanPattern = pattern.removePrefix("||")
-                    val domainPart = cleanPattern.substringBefore('/')
-                    val pathPart = cleanPattern.substringAfter('/', "")
+                    val domainPart = cleanPattern.substringBefore('/').removeSuffix("^")
+                    val pathPart = cleanPattern.substringAfter('/', "").removeSuffix("^")
                     val urlDomain = url.removePrefix("http://").removePrefix("https://").substringBefore("/")
                     val urlPath = url.removePrefix("http://").removePrefix("https://").substringAfter("/", "")
-                    urlDomain == domainPart || urlDomain.endsWith(".$domainPart") &&
-                        (pathPart.isEmpty() || urlPath.startsWith(pathPart))
+                    // 域名按标签边界匹配：||doubleclick 命中 doubleclick.net 与 www.doubleclick.net
+                    val domainMatches = urlDomain == domainPart ||
+                        urlDomain.endsWith(".$domainPart") ||
+                        urlDomain.startsWith("$domainPart.")
+                    domainMatches && (pathPart.isEmpty() || urlPath.startsWith(pathPart))
                 }
                 isStartAnchor -> url.startsWith(pattern)
                 isEndAnchor -> url.endsWith(pattern.removeSuffix("|"))
