@@ -18,6 +18,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -25,6 +26,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -45,14 +47,15 @@ fun SettingsScreen(
     var showThemeDialog by remember { mutableStateOf(false) }
     var showSearchDialog by remember { mutableStateOf(false) }
     var showClearDialog by remember { mutableStateOf(false) }
+    var showTextZoomDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text("设置") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
                     }
                 }
             )
@@ -63,39 +66,46 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            item { SectionHeader("Appearance") }
+            item { SectionHeader("外观") }
             item {
                 SettingsItem(
-                    title = "Theme",
+                    title = "主题",
                     subtitle = when (settings.themeMode) {
-                        ThemeMode.SYSTEM -> "Follow system"
-                        ThemeMode.LIGHT -> "Light"
-                        ThemeMode.DARK -> "Dark"
+                        ThemeMode.SYSTEM -> "跟随系统"
+                        ThemeMode.LIGHT -> "浅色"
+                        ThemeMode.DARK -> "深色"
                     },
                     onClick = { showThemeDialog = true }
                 )
             }
             item {
                 SwitchSettingsItem(
-                    title = "Dynamic Colors",
-                    subtitle = "Use system accent colors (Android 12+)",
+                    title = "动态取色",
+                    subtitle = "使用系统强调色（Android 12+）",
                     checked = settings.useDynamicColor,
                     onCheckedChange = viewModel::setDynamicColor
                 )
             }
 
-            item { SectionHeader("General") }
+            item { SectionHeader("通用") }
             item {
                 SettingsItem(
-                    title = "Search Engine",
+                    title = "搜索引擎",
                     subtitle = settings.searchEngine.label,
                     onClick = { showSearchDialog = true }
                 )
             }
             item {
+                SettingsItem(
+                    title = "字号缩放",
+                    subtitle = "网页文字大小 ${settings.textZoom}%",
+                    onClick = { showTextZoomDialog = true }
+                )
+            }
+            item {
                 SwitchSettingsItem(
-                    title = "Ad Blocking",
-                    subtitle = "Block ads and trackers",
+                    title = "广告拦截",
+                    subtitle = "拦截广告与跟踪请求",
                     checked = settings.adBlockingEnabled,
                     onCheckedChange = viewModel::setAdBlocking
                 )
@@ -103,42 +113,42 @@ fun SettingsScreen(
             item {
                 SwitchSettingsItem(
                     title = "JavaScript",
-                    subtitle = "Enable JavaScript on pages",
+                    subtitle = "启用网页脚本执行",
                     checked = settings.javaScriptEnabled,
                     onCheckedChange = viewModel::setJavaScriptEnabled
                 )
             }
             item {
                 SwitchSettingsItem(
-                    title = "Load Images",
-                    subtitle = "Automatically load images",
+                    title = "加载图片",
+                    subtitle = "自动加载网页图片",
                     checked = settings.loadImages,
                     onCheckedChange = viewModel::setLoadImages
                 )
             }
 
-            item { SectionHeader("Privacy") }
+            item { SectionHeader("隐私") }
             item {
                 SwitchSettingsItem(
-                    title = "Do Not Track",
-                    subtitle = "Send DNT header to websites",
+                    title = "请勿跟踪",
+                    subtitle = "向网站发送 DNT 请求头",
                     checked = settings.doNotTrack,
                     onCheckedChange = viewModel::setDoNotTrack
                 )
             }
             item {
                 SettingsItem(
-                    title = "Clear Browsing Data",
-                    subtitle = "History, cookies, cache",
+                    title = "清除浏览数据",
+                    subtitle = "历史记录、Cookie、缓存与网站数据",
                     onClick = { showClearDialog = true }
                 )
             }
 
-            item { SectionHeader("About") }
+            item { SectionHeader("关于") }
             item {
                 SettingsItem(
-                    title = "Version",
-                    subtitle = "JustBrowse 0.1.0 (M2)",
+                    title = "版本",
+                    subtitle = "JustBrowse 0.1.0",
                     onClick = {}
                 )
             }
@@ -149,22 +159,22 @@ fun SettingsScreen(
     if (showThemeDialog) {
         AlertDialog(
             onDismissRequest = { showThemeDialog = false },
-            title = { Text("Theme") },
+            title = { Text("主题") },
             text = {
                 Column {
-                    ThemeOption("Follow system", ThemeMode.SYSTEM, settings.themeMode) {
+                    ThemeOption("跟随系统", ThemeMode.SYSTEM, settings.themeMode) {
                         viewModel.setThemeMode(ThemeMode.SYSTEM); showThemeDialog = false
                     }
-                    ThemeOption("Light", ThemeMode.LIGHT, settings.themeMode) {
+                    ThemeOption("浅色", ThemeMode.LIGHT, settings.themeMode) {
                         viewModel.setThemeMode(ThemeMode.LIGHT); showThemeDialog = false
                     }
-                    ThemeOption("Dark", ThemeMode.DARK, settings.themeMode) {
+                    ThemeOption("深色", ThemeMode.DARK, settings.themeMode) {
                         viewModel.setThemeMode(ThemeMode.DARK); showThemeDialog = false
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showThemeDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showThemeDialog = false }) { Text("取消") }
             }
         )
     }
@@ -173,10 +183,10 @@ fun SettingsScreen(
     if (showSearchDialog) {
         AlertDialog(
             onDismissRequest = { showSearchDialog = false },
-            title = { Text("Search Engine") },
+            title = { Text("搜索引擎") },
             text = {
                 Column {
-                    SearchEngine.values().forEach { engine ->
+                    SearchEngine.entries.forEach { engine ->
                         ThemeOption(engine.label, engine.name, settings.searchEngine.name) {
                             viewModel.setSearchEngine(engine)
                             showSearchDialog = false
@@ -185,7 +195,45 @@ fun SettingsScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showSearchDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showSearchDialog = false }) { Text("取消") }
+            }
+        )
+    }
+
+    // Text zoom dialog
+    if (showTextZoomDialog) {
+        var zoom by remember { mutableFloatStateOf(settings.textZoom.toFloat()) }
+        AlertDialog(
+            onDismissRequest = { showTextZoomDialog = false },
+            title = { Text("字号缩放") },
+            text = {
+                Column {
+                    Text(
+                        text = "${zoom.toInt()}%",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    Slider(
+                        value = zoom,
+                        onValueChange = { zoom = it },
+                        valueRange = 50f..200f,
+                        steps = 14
+                    )
+                    Text(
+                        text = "调整网页文字显示大小，对所有页面生效",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.setTextZoom(zoom.toInt())
+                    showTextZoomDialog = false
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTextZoomDialog = false }) { Text("取消") }
             }
         )
     }
@@ -194,16 +242,16 @@ fun SettingsScreen(
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
-            title = { Text("Clear Browsing Data") },
-            text = { Text("This will clear your browsing history. Continue?") },
+            title = { Text("清除浏览数据") },
+            text = { Text("将清除历史记录、Cookie、缓存与网站存储数据，继续？") },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.clearBrowsingData()
                     showClearDialog = false
-                }) { Text("Clear") }
+                }) { Text("清除") }
             },
             dismissButton = {
-                TextButton(onClick = { showClearDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showClearDialog = false }) { Text("取消") }
             }
         )
     }

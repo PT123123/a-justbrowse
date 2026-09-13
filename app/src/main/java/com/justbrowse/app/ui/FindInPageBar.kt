@@ -19,7 +19,10 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun FindInPageBar(
     query: String,
+    matchInfo: String?,
     onQueryChange: (String) -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -36,14 +39,21 @@ fun FindInPageBar(
             placeholder = { Text("页内查找") },
             singleLine = true
         )
-        IconButton(onClick = { /* previous match — WebView.findAsync 单次，需要自行实现前后 */ }) {
-            Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Previous")
+        if (matchInfo != null) {
+            Text(
+                text = matchInfo,
+                style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
         }
-        IconButton(onClick = { /* next match */ }) {
-            Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Next")
+        IconButton(onClick = onPrevious) {
+            Icon(Icons.Default.KeyboardArrowUp, contentDescription = "上一个")
+        }
+        IconButton(onClick = onNext) {
+            Icon(Icons.Default.KeyboardArrowDown, contentDescription = "下一个")
         }
         IconButton(onClick = onClose) {
-            Icon(Icons.Default.Close, contentDescription = "Close")
+            Icon(Icons.Default.Close, contentDescription = "关闭")
         }
     }
 }

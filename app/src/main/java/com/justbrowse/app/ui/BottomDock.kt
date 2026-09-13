@@ -20,6 +20,8 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
@@ -28,6 +30,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.ViewWeek
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -71,6 +74,9 @@ fun BottomDock(
     onMenuDark: () -> Unit,
     onMenuBookmarks: () -> Unit,
     onMenuHistory: () -> Unit,
+    onMenuScripts: () -> Unit,
+    onMenuDownloads: () -> Unit,
+    onMenuSync: () -> Unit,
     onMenuSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -244,6 +250,21 @@ fun BottomDock(
                         text = { Text("历史记录") },
                         leadingIcon = { Icon(Icons.Default.History, contentDescription = null) },
                         onClick = onMenuHistory
+                    )
+                    DropdownMenuItem(
+                        text = { Text("下载管理") },
+                        leadingIcon = { Icon(Icons.Default.Download, contentDescription = null) },
+                        onClick = onMenuDownloads
+                    )
+                    DropdownMenuItem(
+                        text = { Text("油猴脚本") },
+                        leadingIcon = { Icon(Icons.Default.Extension, contentDescription = null) },
+                        onClick = onMenuScripts
+                    )
+                    DropdownMenuItem(
+                        text = { Text("局域网同步") },
+                        leadingIcon = { Icon(Icons.Default.Sync, contentDescription = null) },
+                        onClick = onMenuSync
                     )
                     DropdownMenuItem(
                         text = { Text("设置") },

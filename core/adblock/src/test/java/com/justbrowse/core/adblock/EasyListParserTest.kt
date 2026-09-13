@@ -55,7 +55,7 @@ class EasyListParserTest {
 
     @Test
     fun `parse rule with options`() {
-        val rule = EasyListParser.parseLine("||ads.com^$script,third-party") as FilterRule.BlockRule
+        val rule = EasyListParser.parseLine("||ads.com^${'$'}script,third-party") as FilterRule.BlockRule
         assertTrue(rule.options.requestTypes.contains("script"))
         assertTrue(rule.options.thirdParty)
     }

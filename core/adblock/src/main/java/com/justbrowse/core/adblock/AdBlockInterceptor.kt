@@ -10,6 +10,9 @@ interface AdBlockInterceptor {
     fun getElementHidingCss(pageDomain: String): String
     val ruleCount: Int
     val isEnabled: Boolean
+
+    /** 运行时开关（设置页实时切换；默认空实现，供不可变实现复用） */
+    fun setEnabled(enabled: Boolean) {}
 }
 
 /**
@@ -17,11 +20,18 @@ interface AdBlockInterceptor {
  */
 class EasyListAdBlockInterceptor(
     private val engine: AdBlockEngine,
-    private val enabled: Boolean = true
+    enabled: Boolean = true
 ) : AdBlockInterceptor {
+
+    var enabled: Boolean = enabled
+        private set
 
     override val ruleCount: Int get() = engine.ruleCount
     override val isEnabled: Boolean get() = enabled
+
+    override fun setEnabled(enabled: Boolean) {
+        this.enabled = enabled
+    }
 
     override fun shouldBlock(url: String): Boolean {
         if (!enabled) return false

@@ -1,18 +1,47 @@
 package com.justbrowse.core.webview
 
+import android.webkit.CookieManager
+import android.webkit.WebStorage
 import com.justbrowse.domain.model.Tab
 import com.justbrowse.domain.repository.TabRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * 活动标签页引擎的实时快照。
+ * Compose 层订阅快照而不是逐字段拼装，保证进度/后退/错误等状态即时更新。
+ */
+data class EngineSnapshot(
+    val url: String,
+    val title: String,
+    val progress: Int,
+    val canGoBack: Boolean,
+    val canGoForward: Boolean,
+    val isLoading: Boolean,
+    val errorCode: Int?
+)
+
+private data class NavigationState(
+    val canGoBack: Boolean,
+    val canGoForward: Boolean,
+    val isLoading: Boolean,
+    val errorCode: Int?
+)
 
 /**
  * 多标签管理器：维护 Tab 列表 + 每个 Tab 对应的 BrowserEngine 实例。
@@ -31,6 +60,11 @@ class TabManager @Inject constructor(
     private val _activeTabId = MutableStateFlow<String?>(null)
     val activeTabId: StateFlow<String?> = _activeTabId.asStateFlow()
 
+    private val engines = mutableMapOf<String, BrowserEngine>()
+
+    /** 最近一次下发的全局浏览设置；新建引擎时按此初始化 */
+    private var latestEngineSettings = EngineWebSettings()
+
     val activeTab: StateFlow<Tab?> = combine(_tabs, _activeTabId) { list, id ->
         list.firstOrNull { it.id == id }
     }.let { flow ->
@@ -39,7 +73,38 @@ class TabManager @Inject constructor(
         state.asStateFlow()
     }
 
-    private val engines = mutableMapOf<String, BrowserEngine>()
+    val activeEngine: StateFlow<BrowserEngine?> = _activeTabId
+        .map { id -> id?.let { getEngine(it) } }
+        .stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
+
+    /** 活动引擎的实时状态（url/进度/后退/错误等），WebView 每次导航都会更新 */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val activeEngineSnapshot: StateFlow<EngineSnapshot?> = activeEngine
+        .flatMapLatest { engine -> engineSnapshotFlow(engine) }
+        .stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
+
+    private fun engineSnapshotFlow(engine: BrowserEngine?): Flow<EngineSnapshot?> {
+        if (engine == null) return flowOf(null)
+        val loading = combine(engine.url, engine.title, engine.progress) { url, title, progress ->
+            Triple(url, title, progress)
+        }
+        val navigation = combine(
+            engine.canGoBack, engine.canGoForward, engine.isLoading, engine.errorCode
+        ) { back, forward, loadingNow, errorCode ->
+            NavigationState(back, forward, loadingNow, errorCode)
+        }
+        return combine(loading, navigation) { urls, nav ->
+            EngineSnapshot(
+                url = urls.first,
+                title = urls.second,
+                progress = urls.third,
+                canGoBack = nav.canGoBack,
+                canGoForward = nav.canGoForward,
+                isLoading = nav.isLoading,
+                errorCode = nav.errorCode
+            )
+        }
+    }
 
     init {
         scope.launch {
@@ -57,9 +122,34 @@ class TabManager @Inject constructor(
         }
     }
 
-    fun getEngine(tabId: String): BrowserEngine? = engines.getOrPut(tabId) {
+    fun getEngine(tabId: String): BrowserEngine? {
+        engines[tabId]?.let { return it }
         val tab = _tabs.value.firstOrNull { it.id == tabId }
-        engineFactory(tab?.url ?: "about:blank")
+        val engine = engineFactory(tab?.url ?: "about:blank")
+        // 新引擎按最新全局设置初始化（WebView 是惰性创建的，引擎内部会再暂存）
+        engine.applyLiveSettings(latestEngineSettings)
+        engines[tabId] = engine
+        return engine
+    }
+
+    /** 设置变更时下发到所有已创建引擎，并作为后续新建引擎的初始值 */
+    fun applyWebSettings(settings: EngineWebSettings) {
+        latestEngineSettings = settings
+        engines.values.forEach { it.applyLiveSettings(settings) }
+    }
+
+    /** 广告拦截开关切换后刷新各页面的元素隐藏 CSS（网络拦截由共享拦截器立即生效） */
+    fun refreshAdblockCss() {
+        engines.values.forEach { it.refreshAdblockCss() }
+    }
+
+    /** 清除 WebView 侧浏览数据：Cookie、网站存储（localStorage/WebSQL）与各引擎内存缓存 */
+    fun clearWebData() {
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.removeAllCookies(null)
+        cookieManager.flush()
+        WebStorage.getInstance().deleteAllData()
+        engines.values.forEach { it.webView?.clearCache(true) }
     }
 
     fun getActiveEngine(): BrowserEngine? {

@@ -2,6 +2,7 @@ package com.justbrowse.ui.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.justbrowse.core.webview.TabManager
 import com.justbrowse.data.prefs.AppSettings
 import com.justbrowse.data.prefs.SearchEngine
 import com.justbrowse.data.prefs.SettingsDataStore
@@ -17,6 +18,7 @@ import javax.inject.Inject
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val historyRepository: HistoryRepository,
+    private val tabManager: TabManager,
     private val settingsDataStore: SettingsDataStore
 ) : ViewModel() {
 
@@ -58,6 +60,8 @@ class SettingsViewModel @Inject constructor(
     fun clearBrowsingData() {
         viewModelScope.launch {
             historyRepository.clearAll()
+            // Cookie、localStorage/WebSQL、WebView 内存缓存（UI 文案承诺的三类数据）
+            tabManager.clearWebData()
         }
     }
 }

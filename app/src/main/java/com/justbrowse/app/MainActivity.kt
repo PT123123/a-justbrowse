@@ -22,11 +22,13 @@ import androidx.navigation.compose.rememberNavController
 import com.justbrowse.app.ui.BrowserScreen
 import com.justbrowse.data.prefs.SettingsDataStore
 import com.justbrowse.data.prefs.ThemeMode
+import com.justbrowse.di.WebViewSettingsBinder
 import com.justbrowse.ui.screens.BookmarkScreen
 import com.justbrowse.ui.screens.DownloadsScreen
 import com.justbrowse.ui.screens.HistoryScreen
 import com.justbrowse.ui.screens.ScriptScreen
 import com.justbrowse.ui.screens.SettingsScreen
+import com.justbrowse.ui.screens.SyncScreen
 import com.justbrowse.ui.theme.JustBrowseTheme
 import com.justbrowse.ui.theme.resolveDarkTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -43,12 +45,19 @@ object Routes {
     const val SCRIPTS = "scripts"
     const val SETTINGS = "settings"
     const val DOWNLOADS = "downloads"
+    const val SYNC = "sync"
+
+    /** 书签/历史页点击的 URL：经 savedStateHandle 带回浏览器屏 */
+    const val PENDING_URL = "pending_url"
 }
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var settingsDataStore: SettingsDataStore
+
+    // 首次注入即启动：把设置页的全局浏览设置实时下发到 WebView 引擎与广告拦截器
+    @Inject lateinit var webViewSettingsBinder: WebViewSettingsBinder
 
     private lateinit var settingsFlow: StateFlow<com.justbrowse.data.prefs.AppSettings>
 
@@ -121,13 +130,18 @@ fun JustBrowseNavHost(
     val settings by settingsFlow.collectAsState()
 
     NavHost(navController = navController, startDestination = Routes.BROWSER) {
-        composable(Routes.BROWSER) {
+        composable(Routes.BROWSER) { entry ->
             BrowserScreen(
+                pendingUrl = entry.savedStateHandle.getStateFlow(Routes.PENDING_URL, ""),
+                onPendingUrlConsumed = {
+                    entry.savedStateHandle[Routes.PENDING_URL] = ""
+                },
                 onNavigateToHistory = { navController.navigate(Routes.HISTORY) },
                 onNavigateToBookmarks = { navController.navigate(Routes.BOOKMARKS) },
                 onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
                 onNavigateToScripts = { navController.navigate(Routes.SCRIPTS) },
                 onNavigateToDownloads = { navController.navigate(Routes.DOWNLOADS) },
+                onNavigateToSync = { navController.navigate(Routes.SYNC) },
                 darkMode = darkMode,
                 onDarkModeChanged = onDarkModeChanged
             )
@@ -136,7 +150,9 @@ fun JustBrowseNavHost(
             HistoryScreen(
                 onBack = { navController.popBackStack() },
                 onUrlClick = { url ->
-                    navController.popBackStack(Routes.BROWSER, inclusive = false)
+                    navController.previousBackStackEntry
+                        ?.savedStateHandle?.set(Routes.PENDING_URL, url)
+                    navController.popBackStack()
                 }
             )
         }
@@ -144,15 +160,20 @@ fun JustBrowseNavHost(
             BookmarkScreen(
                 onBack = { navController.popBackStack() },
                 onUrlClick = { url ->
-                    navController.popBackStack(Routes.BROWSER, inclusive = false)
+                    navController.previousBackStackEntry
+                        ?.savedStateHandle?.set(Routes.PENDING_URL, url)
+                    navController.popBackStack()
                 }
             )
         }
         composable(Routes.SCRIPTS) {
-            ScriptScreen()
+            ScriptScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.DOWNLOADS) {
             DownloadsScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.SYNC) {
+            SyncScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.SETTINGS) {
             SettingsScreen(onBack = { navController.popBackStack() })
