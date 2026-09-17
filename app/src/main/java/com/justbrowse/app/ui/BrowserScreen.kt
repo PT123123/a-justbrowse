@@ -1,5 +1,9 @@
 package com.justbrowse.app.ui
 
+import android.app.Activity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -30,6 +34,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -38,8 +43,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.justbrowse.data.prefs.DarkThemeVariant
 import com.justbrowse.data.prefs.ThemeMode
@@ -89,6 +99,20 @@ fun BrowserScreen(
     var showMenu by remember { mutableStateOf(false) }
     var showDarkModeDialog by remember { mutableStateOf(false) }
 
+    // ===== 视频全屏宿主：常驻一个 FrameLayout 浮在整屏之上，默认隐藏 =====
+    val context = LocalContext.current
+    val activity = context as? Activity
+    var isVideoFullscreen by remember { mutableStateOf(false) }
+    val fullscreenHost = remember {
+        FrameLayout(context).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            visibility = View.GONE
+        }
+    }
+
     val isHome = state.activeUrl.isEmpty()
 
     // 书签/历史页点击的 URL 经 savedStateHandle 带回来，回到本屏后打开
@@ -123,11 +147,19 @@ fun BrowserScreen(
         }
     }
 
+    // 视频全屏时返回键优先退出全屏（声明在普通返回键之后，抢占返回优先级）
+    if (isVideoFullscreen) {
+        BackHandler {
+            state.activeTab?.id?.let { viewModel.getEngine(it) }?.exitFullscreen()
+        }
+    }
+
     // App 的暗色状态是唯一来源，同步给所有 WebView 引擎（网页内容跟着一起变暗）
     LaunchedEffect(darkMode) {
         viewModel.setDarkMode(darkMode)
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize()) {
 
         // ===== 内容区：网页 / 主屏 / 各类浮层 =====
@@ -151,6 +183,39 @@ fun BrowserScreen(
                 if (engine != null) {
                     LaunchedEffect(engine, activeTabId) {
                         viewModel.bindEngine(engine, activeTabId)
+                        // 视频全屏：把 WebView 的全屏视图挂到整屏容器上
+                        engine.onShowCustomView = { view, _ ->
+                            fullscreenHost.removeAllViews()
+                            fullscreenHost.addView(
+                                view,
+                                FrameLayout.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                            )
+                            fullscreenHost.visibility = View.VISIBLE
+                            isVideoFullscreen = true
+                            activity?.let { hideSystemBars(it) }
+                        }
+                        engine.onHideCustomView = {
+                            if (fullscreenHost.visibility == View.VISIBLE) {
+                                fullscreenHost.removeAllViews()
+                                fullscreenHost.visibility = View.GONE
+                                isVideoFullscreen = false
+                                activity?.let { showSystemBars(it) }
+                            }
+                        }
+                    }
+                    // 切换标签 / 离开本屏时兜底清理全屏容器
+                    DisposableEffect(engine) {
+                        onDispose {
+                            if (fullscreenHost.visibility == View.VISIBLE) {
+                                fullscreenHost.removeAllViews()
+                                fullscreenHost.visibility = View.GONE
+                                isVideoFullscreen = false
+                                activity?.let { showSystemBars(it) }
+                            }
+                        }
                     }
                     WebViewContainer(
                         engine = engine,
@@ -334,6 +399,13 @@ fun BrowserScreen(
         )
     }
 
+        // ===== 视频全屏层：浮在所有 UI（含底部停靠栏）之上，默认 GONE =====
+        AndroidView(
+            factory = { fullscreenHost },
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+
     // ===== 搜索覆盖层 =====
     if (showSearchOverlay) {
         SearchOverlay(
@@ -473,4 +545,18 @@ private fun ErrorOverlay(
             Text("返回主页")
         }
     }
+}
+
+/** 全屏视频时隐藏系统栏（沉浸式观看） */
+private fun hideSystemBars(activity: Activity) {
+    WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
+        systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        hide(WindowInsetsCompat.Type.systemBars())
+    }
+}
+
+/** 退出全屏后恢复系统栏 */
+private fun showSystemBars(activity: Activity) {
+    WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+        .show(WindowInsetsCompat.Type.systemBars())
 }
