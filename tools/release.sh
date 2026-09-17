@@ -254,19 +254,25 @@ do_publish() {
   } > "$notes"
 
   info "创建 Release $tag @ $slug"
-  # 每条 gh 命令都显式带 -R：仓库里若存在 upstream remote，gh 会优先往 upstream 发
+  # 每条 gh 命令都显式带 -R：仓库里若存在 upstream remote，gh 会优先往 upstream 发。
+  # 资产路径必须转成原生 Windows 形式 —— gh 是原生程序，收到 /c/Users/... 会当成
+  # C:\c\Users\... 去 glob，报 `no matches found for ...`（跟 adb/curl 一个坑）。
   gh release create "$tag" \
-    "$DIST/$ASSET_NAME" "$DIST/justbrowse-$built_vn.apk" \
+    "$(to_native "$DIST/$ASSET_NAME")" \
+    "$(to_native "$DIST/justbrowse-$built_vn.apk")" \
     -R "$slug" \
     --title "$tag" \
-    --notes-file "$notes" \
-    --target "$head"
+    --notes-file "$(to_native "$notes")" \
+    --target "$head" \
+    || die "gh release create 失败（422 时先看报错 URL 里的 repo 是不是 $slug）"
+  ok "Release $tag 已创建"
 
   # 发布后真下载一次永久直链并比 sha256（只看网页「已发布」不算验证）
   local url="https://github.com/$slug/releases/latest/download/$ASSET_NAME"
   info "回下直链校验：$url"
-  local tmp; tmp="$(mktemp -d)/dl-check.apk"
-  if curl -sSL --retry 3 --max-time 120 -o "$tmp" -w 'http=%{http_code} bytes=%{size_download}\n' "$url"; then
+  local tmpdir tmp; tmpdir="$(mktemp -d)"; tmp="$tmpdir/dl-check.apk"
+  # -o 的路径同样要给原生形式，否则 curl 报 (23) client returned ERROR on write
+  if curl -sSL --retry 3 --max-time 120 -o "$(to_native "$tmp")" -w 'http=%{http_code} bytes=%{size_download}\n' "$url"; then
     local h1 h2
     h1="$(sha256sum "$tmp" | cut -d' ' -f1)"
     h2="$(sha256sum "$apk" | cut -d' ' -f1)"
