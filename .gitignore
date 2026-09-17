@@ -24,9 +24,19 @@ captures/
 .externalNativeBuild/
 .cxx/
 
+# Python 临时脚本
+__pycache__/
+*.pyc
+ui_dump.xml
+
 # Keystore files
 *.jks
 *.keystore
+*.p12
+keystore.properties
+
+# Release 产物
+dist/
 
 # Google Services (if added later)
 google-services.json
