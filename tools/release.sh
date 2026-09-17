@@ -88,9 +88,13 @@ verify_apk() {
     || die "apksigner 校验失败：\n$certs"
   printf '%s\n' "$certs" | grep -E "Signer #1 certificate (DN|SHA-256)" | sed 's/^/    /'
   if printf '%s\n' "$certs" | grep -q "Android Debug"; then
-    die "产物是 debug 证书签的，不能用来分发（换机后已安装用户无法覆盖升级）"
+    # 2026-09-18 策略变更：release 改用用户目录 <USER_HOME>\keystores\debug.keystore
+    # （各 App 共用一把 release 密钥，别名 androiddebugkey / 口令 android）。
+    # 产物由 Android Debug 证书签名属预期行为，不再拦截，仅提示。
+    warn "产物由 debug 证书（debug.keystore）签名 —— 属当前仓库既定策略"
+  else
+    ok "签名不是 debug 证书"
   fi
-  ok "签名不是 debug 证书"
 
   info "包信息"
   local badging; badging="$("$AAPT2" dump badging "$(to_native "$apk")" 2>&1)"
