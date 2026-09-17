@@ -77,7 +77,33 @@ di/           Hilt 模块集中装配
 ## 构建
 
 ```bash
-./gradlew :app:assembleDebug
+./gradlew.bat :app:assembleDebug
 ```
 
 APK 输出：`app/build/outputs/apk/debug/app-debug.apk`
+
+## 安装 / 分发
+
+正式包走 **GitHub Release**，用 [Obtainium](https://github.com/ImranR98/Obtainium) 订阅自动更新。
+
+- 仓库地址（填进 Obtainium 的 Add App）：`https://github.com/PT123123/a-justbrowse`
+- 永久直链：`https://github.com/PT123123/a-justbrowse/releases/latest/download/justbrowse.apk`
+
+### 发布流程
+
+```bash
+just release            # 出正式签名包 → dist/justbrowse.apk → 自检（拒绝 debug 证书）
+just release verify     # 只自检 dist 里现成的包
+just release bump       # versionCode +1、versionName 末段 +1
+just release publish    # 打 tag + gh release create + 回下直链比 sha256
+```
+
+`publish` 有四道闸：工作区干净、HEAD 已 push、产物对应当前源码、tag 不重名。
+
+### 签名
+
+签名参数在仓库根 `keystore.properties`（已 gitignore），密钥文件 `justbrowse-release.p12`。
+
+> **密钥丢失 = 所有已安装设备无法覆盖升级**（只能卸载重装、数据全丢）。
+> 备份位置：仓库外的一个密钥目录（建议同时留一份异地副本），路径见本机密钥备忘，不入库。
+

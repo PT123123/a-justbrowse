@@ -9,15 +9,15 @@ default:
 
 # 编译 Debug APK
 build:
-    ./gradlew :app:assembleDebug
+    ./gradlew.bat :app:assembleDebug
 
 # 编译 Release APK
 build-release:
-    ./gradlew :app:assembleRelease
+    ./gradlew.bat :app:assembleRelease
 
 # 清理构建产物
 clean:
-    ./gradlew clean
+    ./gradlew.bat clean
 
 # ========== 安装 ==========
 
@@ -40,15 +40,15 @@ dev: build install
 
 # 运行单元测试
 test:
-    ./gradlew test
+    ./gradlew.bat test
 
 # 运行 adblock 模块测试
 test-adblock:
-    ./gradlew :core:adblock:test
+    ./gradlew.bat :core:adblock:test
 
 # 检查代码风格
 lint:
-    ./gradlew :app:lintDebug
+    ./gradlew.bat :app:lintDebug
 
 # ========== 设备交互 ==========
 
@@ -87,3 +87,23 @@ copy-apk:
     @timestamp=$(date +%Y%m%d_%H%M%S) && \
     cp {{output_path}} ./JustBrowse_debug_${timestamp}.apk && \
     echo "Copied to: JustBrowse_debug_${timestamp}.apk"
+
+# ========== 正式发布（GitHub Release，供 Obtainium 订阅） ==========
+#
+#   just release           出正式签名包 → dist/justbrowse.apk → 自检
+#   just release verify    只自检 dist 里现成的包
+#   just release bump      versionCode+1、versionName 末段+1
+#   just release publish   打 tag + gh release create + 回下直链比 sha256
+#
+# 签名参数在仓库根 keystore.properties（已 gitignore）；
+# 密钥备份在仓库外的密钥目录（路径见本机备忘，不入库）
+
+# 发布主入口
+release action="package" *args:
+    @bash tools/release.sh {{action}} {{args}}
+
+# 一步到位：版本 bump → 出包 → 自检（之后再 just release publish）
+release-next:
+    @bash tools/release.sh bump
+    @bash tools/release.sh package
+
