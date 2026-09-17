@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Message
 import android.util.Log
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
@@ -131,6 +132,15 @@ class BrowserEngine(
     /** 新窗口请求回调：返回新标签页的 Engine */
     var onCreateWindow: (() -> BrowserEngine?)? = null
 
+    /** 视频全屏（WebChromeClient.onShowCustomView）回调：由 UI 层挂载全屏容器 */
+    var onShowCustomView: ((view: View, callback: WebChromeClient.CustomViewCallback) -> Unit)? = null
+
+    /** 视频全屏退出（WebChromeClient.onHideCustomView）回调：由 UI 层卸载全屏容器 */
+    var onHideCustomView: (() -> Unit)? = null
+
+    /** 当前全屏视图回调：系统返回键 / 页面请求退出全屏时使用 */
+    private var customViewCallback: WebChromeClient.CustomViewCallback? = null
+
     /** 页面开始加载回调（用于记录历史） */
     var onPageStartedListener: ((url: String) -> Unit)? = null
 
@@ -160,7 +170,9 @@ class BrowserEngine(
                 displayZoomControls = false
                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
                 setSupportMultipleWindows(true)
-                javaScriptCanOpenWindowsAutomatically = false
+                // 第三方登录常通过 window.open 弹授权窗，部分站点手势检测不可靠；
+                // 允许自动打开，配合 onCreateWindow 一律开成新标签页（浏览器习惯行为）
+                javaScriptCanOpenWindowsAutomatically = true
                 cacheMode = WebSettings.LOAD_DEFAULT
                 setOffscreenPreRaster(true)
                 userAgentString = "$userAgentString JustBrowse/0.1"
@@ -254,6 +266,14 @@ class BrowserEngine(
     }
 
     fun stop() = webView?.stopLoading()
+
+    /** 请求退出全屏（系统返回键 / 页面请求退出全屏时调用，幂等） */
+    fun exitFullscreen() {
+        val cb = customViewCallback
+        customViewCallback = null
+        cb?.onCustomViewHidden()
+        onHideCustomView?.invoke()
+    }
 
     override fun evaluateJavascript(script: String, callback: ((String) -> Unit)?) {
         webView?.evaluateJavascript(script, callback)
@@ -364,8 +384,14 @@ class BrowserEngine(
                 onExternalLinkListener?.invoke(uri)
                 return true
             }
-            // DNT 请求头无法全局注入：主文档导航在这里重新派发，让每次跳转都带上请求头
+            // DNT 请求头无法全局注入：仅对主文档的 GET 导航重新派发带上请求头。
+            // 必须跳过重定向与 POST：
+            //  - 重定向链（OAuth 回调 / 302 链）重新派发会丢表单数据、破坏登录流程，
+            //    第三方登录「重定向后不跳转」就是这个导致的（DNT 默认开启）；
+            //  - POST（表单提交）重新派发会变成 GET，登录表单直接失效。
             if (request.isForMainFrame && pendingSettings.doNotTrack &&
+                !request.isRedirect &&
+                request.method.equals("GET", ignoreCase = true) &&
                 uri.scheme in setOf("http", "https")
             ) {
                 view.loadUrl(uri.toString(), dntHeaders())
@@ -472,6 +498,18 @@ class BrowserEngine(
             _favicon.value = icon
         }
 
+        /** 网页视频全屏：把全屏视图交给 UI 层挂载到全屏容器 */
+        override fun onShowCustomView(view: View, callback: CustomViewCallback) {
+            customViewCallback = callback
+            onShowCustomView?.invoke(view, callback)
+        }
+
+        /** 网页视频退出全屏：通知 UI 层卸载全屏容器 */
+        override fun onHideCustomView() {
+            customViewCallback = null
+            onHideCustomView?.invoke()
+        }
+
         override fun onCreateWindow(
             view: WebView,
             isDialog: Boolean,
@@ -479,7 +517,8 @@ class BrowserEngine(
             resultMsg: Message?
         ): Boolean {
             val transport = resultMsg?.obj as? WebView.WebViewTransport
-            if (transport == null || !isUserGesture) return false
+            // 不卡 isUserGesture：第三方登录的授权窗手势检测常不可靠，按浏览器习惯一律开成新标签页
+            if (transport == null) return false
             // 通过回调创建新标签页并获取其 Engine
             val newEngine = onCreateWindow?.invoke() ?: return false
             val ctx = appContext ?: return false
