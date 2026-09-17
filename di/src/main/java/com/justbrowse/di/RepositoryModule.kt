@@ -2,10 +2,12 @@ package com.justbrowse.di
 
 import com.justbrowse.data.repository.BookmarkRepositoryImpl
 import com.justbrowse.data.repository.HistoryRepositoryImpl
+import com.justbrowse.data.repository.PasswordRepositoryImpl
 import com.justbrowse.data.repository.ScriptRepositoryImpl
 import com.justbrowse.data.repository.TabRepositoryImpl
 import com.justbrowse.domain.repository.BookmarkRepository
 import com.justbrowse.domain.repository.HistoryRepository
+import com.justbrowse.domain.repository.PasswordRepository
 import com.justbrowse.domain.repository.ScriptRepository
 import com.justbrowse.domain.repository.TabRepository
 import dagger.Binds
@@ -33,4 +35,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindHistoryRepository(impl: HistoryRepositoryImpl): HistoryRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindPasswordRepository(impl: PasswordRepositoryImpl): PasswordRepository
 }

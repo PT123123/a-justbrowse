@@ -33,12 +33,12 @@ fun ScriptImportDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Import Userscript") },
+        title = { Text("导入油猴脚本") },
         text = {
             Column {
                 TabRow(selectedTabIndex = selectedTab) {
-                    Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Paste") })
-                    Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("URL") })
+                    Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("粘贴文本") })
+                    Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("链接") })
                 }
                 if (selectedTab == 0) {
                     OutlinedTextField(
@@ -52,7 +52,7 @@ fun ScriptImportDialog(
                     OutlinedTextField(
                         value = url,
                         onValueChange = { url = it },
-                        label = { Text("Script URL") },
+                        label = { Text("脚本链接") },
                         placeholder = { Text("https://example.com/script.user.js") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
@@ -67,11 +67,11 @@ fun ScriptImportDialog(
                 },
                 enabled = if (selectedTab == 0) text.isNotBlank() else url.isNotBlank()
             ) {
-                Text("Import")
+                Text("导入")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text("取消") }
         }
     )
 }

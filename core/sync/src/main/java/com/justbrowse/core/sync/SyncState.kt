@@ -28,6 +28,13 @@ interface SyncController {
 
     /** 推送本地快照到远端 */
     suspend fun push()
+
+    /**
+     * 配置密码 vault 同步（内存持有，不持久化）。
+     * include=true 时推送/服务端快照携带口令加密的密码库；
+     * 接收端拉取到带 vault 的快照时也需相同口令解密。
+     */
+    fun configureVault(include: Boolean, passphrase: CharArray?)
 }
 
 /**

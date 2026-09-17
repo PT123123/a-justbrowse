@@ -10,6 +10,7 @@ import com.justbrowse.core.sync.SyncController
 import com.justbrowse.data.prefs.SettingsDataStore
 import com.justbrowse.domain.repository.BookmarkRepository
 import com.justbrowse.domain.repository.HistoryRepository
+import com.justbrowse.domain.repository.PasswordRepository
 import com.justbrowse.domain.repository.ScriptRepository
 import dagger.Module
 import dagger.Provides
@@ -41,6 +42,7 @@ object CoreModule {
         bookmarkRepository: BookmarkRepository,
         historyRepository: HistoryRepository,
         scriptRepository: ScriptRepository,
+        passwordRepository: PasswordRepository,
         settingsDataStore: SettingsDataStore
     ): SyncController {
         return RealSyncController(
@@ -48,6 +50,7 @@ object CoreModule {
             bookmarkRepository = bookmarkRepository,
             historyRepository = historyRepository,
             scriptRepository = scriptRepository,
+            passwordRepository = passwordRepository,
             settingsDataStore = settingsDataStore
         )
     }

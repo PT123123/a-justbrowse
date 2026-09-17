@@ -50,16 +50,16 @@ fun DownloadsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Downloads") },
+                title = { Text("下载管理") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
                     }
                 },
                 actions = {
                     if (downloads.isNotEmpty()) {
                         IconButton(onClick = viewModel::clearAll) {
-                            Icon(Icons.Default.Delete, contentDescription = "Clear all")
+                            Icon(Icons.Default.Delete, contentDescription = "清空列表")
                         }
                     }
                 }
@@ -78,7 +78,7 @@ fun DownloadsScreen(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    "No downloads yet",
+                    "还没有下载记录",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -133,10 +133,10 @@ private fun DownloadItem(
                     )
                 }
                 IconButton(onClick = onOpen) {
-                    Icon(Icons.Default.OpenInNew, contentDescription = "Open")
+                    Icon(Icons.Default.OpenInNew, contentDescription = "打开")
                 }
                 IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Remove")
+                    Icon(Icons.Default.Delete, contentDescription = "删除")
                 }
             }
             if (item.status == DownloadManager.STATUS_RUNNING ||

@@ -26,7 +26,7 @@ fun ScriptEditorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit: ${script.name}") },
+        title = { Text("编辑：${script.name}") },
         text = {
             OutlinedTextField(
                 value = source,
@@ -45,11 +45,11 @@ fun ScriptEditorDialog(
                 )
                 onSave(updated.copy(enabled = script.enabled))
             }) {
-                Text("Save")
+                Text("保存")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text("取消") }
         }
     )
 }

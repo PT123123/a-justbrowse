@@ -17,15 +17,28 @@ import javax.inject.Singleton
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
+
+/**
+ * 深色模式的具体配色变体。仅在暗色生效时（[ThemeMode.DARK] 或跟随系统进入暗色）起作用。
+ * 具体色值定义在 ui 模块的 theme 包，这里只负责持久化标识与展示名。
+ */
+enum class DarkThemeVariant(val label: String) {
+    /** 默认深色：以 #121212 打底，层次更分明 */
+    DEFAULT("默认"),
+    /** 纯黑：背景 #000000，OLED 屏省电、对比最强 */
+    AMOLED("纯黑")
+}
+
 enum class SearchEngine(val label: String, val template: String) {
-    GOOGLE("Google", "https://www.google.com/search?q=%s"),
-    BING("Bing", "https://www.bing.com/search?q=%s"),
+    GOOGLE("谷歌", "https://www.google.com/search?q=%s"),
+    BING("必应", "https://www.bing.com/search?q=%s"),
     DUCKDUCKGO("DuckDuckGo", "https://duckduckgo.com/?q=%s"),
-    BAIDU("Baidu", "https://www.baidu.com/s?wd=%s")
+    BAIDU("百度", "https://www.baidu.com/s?wd=%s")
 }
 
 data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val darkThemeVariant: DarkThemeVariant = DarkThemeVariant.DEFAULT,
     val searchEngine: SearchEngine = SearchEngine.BING,
     val adBlockingEnabled: Boolean = true,
     val javaScriptEnabled: Boolean = true,
@@ -41,6 +54,7 @@ class SettingsDataStore @Inject constructor(
 ) {
     private object Keys {
         val THEME_MODE = stringPreferencesKey("theme_mode")
+        val DARK_THEME_VARIANT = stringPreferencesKey("dark_theme_variant")
         val SEARCH_ENGINE = stringPreferencesKey("search_engine")
         val AD_BLOCKING = booleanPreferencesKey("ad_blocking")
         val JS_ENABLED = booleanPreferencesKey("js_enabled")
@@ -53,6 +67,8 @@ class SettingsDataStore @Inject constructor(
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
         AppSettings(
             themeMode = prefs[Keys.THEME_MODE]?.let { ThemeMode.valueOf(it) } ?: ThemeMode.SYSTEM,
+            darkThemeVariant = prefs[Keys.DARK_THEME_VARIANT]?.let { DarkThemeVariant.valueOf(it) }
+                ?: DarkThemeVariant.DEFAULT,
             searchEngine = prefs[Keys.SEARCH_ENGINE]?.let { SearchEngine.valueOf(it) } ?: SearchEngine.BING,
             adBlockingEnabled = prefs[Keys.AD_BLOCKING] ?: true,
             javaScriptEnabled = prefs[Keys.JS_ENABLED] ?: true,
@@ -65,6 +81,10 @@ class SettingsDataStore @Inject constructor(
 
     suspend fun setThemeMode(mode: ThemeMode) {
         context.dataStore.edit { it[Keys.THEME_MODE] = mode.name }
+    }
+
+    suspend fun setDarkThemeVariant(variant: DarkThemeVariant) {
+        context.dataStore.edit { it[Keys.DARK_THEME_VARIANT] = variant.name }
     }
 
     suspend fun setSearchEngine(engine: SearchEngine) {

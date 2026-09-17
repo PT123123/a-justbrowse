@@ -1,5 +1,6 @@
 package com.justbrowse.core.webview
 
+import android.net.Uri
 import android.webkit.CookieManager
 import android.webkit.WebStorage
 import com.justbrowse.domain.model.Tab
@@ -65,6 +66,16 @@ class TabManager @Inject constructor(
     /** 最近一次下发的全局浏览设置；新建引擎时按此初始化 */
     private var latestEngineSettings = EngineWebSettings()
 
+    /**
+     * 外部协议（taobao://、intent:// 等）的处理器，由上层（BrowserViewModel）注入。
+     * TabManager 不关心具体怎么唤起别的 App，只负责把它挂到每个新建的引擎上。
+     */
+    var externalLinkHandler: ((Uri) -> Unit)? = null
+        set(value) {
+            field = value
+            engines.values.forEach { it.onExternalLinkListener = value }
+        }
+
     val activeTab: StateFlow<Tab?> = combine(_tabs, _activeTabId) { list, id ->
         list.firstOrNull { it.id == id }
     }.let { flow ->
@@ -108,14 +119,19 @@ class TabManager @Inject constructor(
 
     init {
         scope.launch {
+            // 只在启动时从数据库恢复一次，此后以内存态为唯一事实来源。
+            // 否则「关闭最后一个标签」（先写入新 tab、再删除旧 tab）的中间态会被
+            // 回灌进内存，出现标签复活 / 重复创建。
+            var restored = false
             tabRepository.observeTabs().collect { persisted ->
+                if (restored) return@collect
+                restored = true
                 if (persisted.isEmpty()) {
                     // 首次启动：创建一个空白 tab
                     createTabInternal("about:blank", activate = true)
                 } else {
                     _tabs.value = persisted
-                    val active = persisted.firstOrNull { it.isActive }
-                        ?: persisted.first().copy(isActive = true)
+                    val active = persisted.firstOrNull { it.isActive } ?: persisted.first()
                     _activeTabId.value = active.id
                 }
             }
@@ -128,6 +144,9 @@ class TabManager @Inject constructor(
         val engine = engineFactory(tab?.url ?: "about:blank")
         // 新引擎按最新全局设置初始化（WebView 是惰性创建的，引擎内部会再暂存）
         engine.applyLiveSettings(latestEngineSettings)
+        // 外链处理器在建引擎时就绑好：新标签页（含 window.open 新建的）可能在 UI 层的
+        // bindEngine 执行之前就撞上 taobao:// 这类链接，绑晚了那一次跳转就没了。
+        engine.onExternalLinkListener = externalLinkHandler
         engines[tabId] = engine
         return engine
     }
@@ -194,9 +213,33 @@ class TabManager @Inject constructor(
 
     fun closeTab(tabId: String) {
         val current = _tabs.value
-        if (current.size <= 1) return // 至少保留一个 tab
-
         val idx = current.indexOfFirst { it.id == tabId }
+        if (idx < 0) return
+
+        // 关闭最后一个标签：不退出应用，重置为一个全新的空白标签（回到主页）。
+        // 之前这里是 `if (current.size <= 1) return` ——「关到最后一个就关不掉」的根因。
+        if (current.size <= 1) {
+            engines.remove(tabId)?.destroy()
+            val now = System.currentTimeMillis()
+            val fresh = Tab(
+                id = UUID.randomUUID().toString(),
+                url = "about:blank",
+                title = "",
+                createdAt = now,
+                updatedAt = now,
+                isActive = true
+            )
+            _tabs.value = listOf(fresh)
+            _activeTabId.value = fresh.id
+            scope.launch {
+                // 先落新 tab 再删旧的，保证数据库里任何时刻都至少有一个标签
+                tabRepository.saveTab(fresh)
+                tabRepository.setActiveTab(fresh.id)
+                tabRepository.deleteTab(tabId)
+            }
+            return
+        }
+
         val newList = current.filterNot { it.id == tabId }
         val newActive: String = if (_activeTabId.value == tabId) {
             // 切到相邻 tab

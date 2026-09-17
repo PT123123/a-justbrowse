@@ -260,7 +260,7 @@ private fun TabCard(
             ) {
                 Icon(
                     Icons.Default.Close,
-                    contentDescription = "Close tab",
+                    contentDescription = "关闭标签",
                     tint = Color.White,
                     modifier = Modifier.size(14.dp)
                 )

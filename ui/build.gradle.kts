@@ -55,6 +55,8 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.core.ktx)
     implementation(libs.lifecycle.viewmodel.compose)
+    // 锁屏凭据验证（BiometricPrompt 需要 FragmentActivity，由独立的透明验证 Activity 承载）
+    implementation(libs.biometric)
 
     // Hilt
     implementation(libs.hilt.android)
