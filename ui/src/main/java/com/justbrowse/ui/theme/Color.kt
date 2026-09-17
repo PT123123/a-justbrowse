@@ -21,3 +21,9 @@ val SurfaceDark = Color(0xFF121212)
  * 与 [SurfaceDark] 拉开一点层次，避免整屏一个色。
  */
 val DarkSurfaceVariant = Color(0xFF26262B)
+
+// ===== 纯黑（AMOLED）变体 =====
+/** 纯黑底色：OLED 屏像素可完全熄灭，最省电、对比最强 */
+val SurfaceAmoled = Color(0xFF000000)
+/** 纯黑下的次级表面，仅比底色亮一点点，保住卡片边界 */
+val AmoledSurfaceVariant = Color(0xFF141414)

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- 密码管理器的锁屏验证门：透明 FragmentActivity，专门承载系统 BiometricPrompt
+             （BiometricPrompt 要求 FragmentActivity，不能挂在主浏览器 ComponentActivity 上） -->
+        <activity
+            android:name="com.justbrowse.ui.screens.PasswordAuthActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:exported="false" />
+    </application>
+</manifest>

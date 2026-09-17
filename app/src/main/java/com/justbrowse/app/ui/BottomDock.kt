@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreVert
@@ -77,6 +78,7 @@ fun BottomDock(
     onMenuScripts: () -> Unit,
     onMenuDownloads: () -> Unit,
     onMenuSync: () -> Unit,
+    onMenuPasswords: () -> Unit,
     onMenuSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -113,14 +115,14 @@ fun BottomDock(
                 IconButton(onClick = onBack, enabled = state.canGoBack) {
                     Icon(
                         Icons.Default.ArrowBack,
-                        contentDescription = "Back",
+                        contentDescription = "后退",
                         modifier = Modifier.size(20.dp)
                     )
                 }
                 IconButton(onClick = onForward, enabled = state.canGoForward) {
                     Icon(
                         Icons.Default.ArrowForward,
-                        contentDescription = "Forward",
+                        contentDescription = "前进",
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -134,7 +136,7 @@ fun BottomDock(
                 } else {
                     Icon(
                         if (isHttps) Icons.Default.Lock else Icons.Default.LockOpen,
-                        contentDescription = if (isHttps) "Secure" else "Not secure",
+                        contentDescription = if (isHttps) "安全连接" else "不安全",
                         tint = if (isHttps) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                         modifier = Modifier.size(14.dp)
                     )
@@ -156,7 +158,7 @@ fun BottomDock(
                     IconButton(onClick = onStopLoading) {
                         Icon(
                             Icons.Default.Close,
-                            contentDescription = "Stop",
+                            contentDescription = "停止加载",
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -164,7 +166,7 @@ fun BottomDock(
                     IconButton(onClick = onReload) {
                         Icon(
                             Icons.Default.Refresh,
-                            contentDescription = "Reload",
+                            contentDescription = "刷新",
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -172,7 +174,7 @@ fun BottomDock(
                 IconButton(onClick = onToggleBookmark) {
                     Icon(
                         if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                        contentDescription = if (isBookmarked) "Remove bookmark" else "Add bookmark",
+                        contentDescription = if (isBookmarked) "取消收藏" else "收藏本页",
                         tint = if (isBookmarked) {
                             MaterialTheme.colorScheme.primary
                         } else {
@@ -199,7 +201,7 @@ fun BottomDock(
                 IconButton(onClick = onTabClick) {
                     Icon(
                         Icons.Default.ViewWeek,
-                        contentDescription = "Tabs",
+                        contentDescription = "标签页",
                         modifier = Modifier.size(21.dp)
                     )
                 }
@@ -208,7 +210,7 @@ fun BottomDock(
             // ===== 更多菜单 =====
             Box {
                 IconButton(onClick = onMenuClick) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "More")
+                    Icon(Icons.Default.MoreVert, contentDescription = "更多")
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = onMenuDismiss) {
                     DropdownMenuItem(
@@ -265,6 +267,11 @@ fun BottomDock(
                         text = { Text("局域网同步") },
                         leadingIcon = { Icon(Icons.Default.Sync, contentDescription = null) },
                         onClick = onMenuSync
+                    )
+                    DropdownMenuItem(
+                        text = { Text("密码管理器") },
+                        leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
+                        onClick = onMenuPasswords
                     )
                     DropdownMenuItem(
                         text = { Text("设置") },

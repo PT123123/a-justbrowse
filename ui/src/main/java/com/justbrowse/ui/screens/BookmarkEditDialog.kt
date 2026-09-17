@@ -27,20 +27,20 @@ fun BookmarkEditDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (bookmark == null) "Add Bookmark" else "Edit Bookmark") },
+        title = { Text(if (bookmark == null) "添加书签" else "编辑书签") },
         text = {
             Column(modifier = Modifier.padding(top = 8.dp)) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Title") },
+                    label = { Text("标题") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
                 )
                 OutlinedTextField(
                     value = url,
                     onValueChange = { url = it },
-                    label = { Text("URL") },
+                    label = { Text("网址") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -51,12 +51,12 @@ fun BookmarkEditDialog(
                 onClick = { onConfirm(title, url) },
                 enabled = url.isNotBlank()
             ) {
-                Text("Save")
+                Text("保存")
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text("取消")
             }
         }
     )

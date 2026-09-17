@@ -51,17 +51,17 @@ fun ScriptScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Userscripts") },
+                title = { Text("油猴脚本") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
                     }
                 }
             )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { showAddDialog = true }) {
-                Icon(Icons.Default.Add, contentDescription = "Add script")
+                Icon(Icons.Default.Add, contentDescription = "添加脚本")
             }
         }
     ) { padding ->
@@ -77,12 +77,12 @@ fun ScriptScreen(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    "No scripts installed",
+                    "还没有安装脚本",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    "Tap + to add a userscript",
+                    "点右下角 + 添加油猴脚本",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -160,7 +160,7 @@ private fun ScriptItem(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "v${script.version ?: "?"} · ${script.grants.size} grants",
+                    text = "v${script.version ?: "?"} · 授权 ${script.grants.size} 项",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -170,10 +170,10 @@ private fun ScriptItem(
                 onCheckedChange = onToggle
             )
             IconButton(onClick = onEdit) {
-                Icon(Icons.Default.Edit, contentDescription = "Edit")
+                Icon(Icons.Default.Edit, contentDescription = "编辑")
             }
             IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete")
+                Icon(Icons.Default.Delete, contentDescription = "删除")
             }
         }
     }

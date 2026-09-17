@@ -55,18 +55,18 @@ fun HistoryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("History") },
+                title = { Text("历史记录") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
                     }
                 },
                 actions = {
                     IconButton(onClick = { isSearching = !isSearching }) {
-                        Icon(Icons.Default.Search, contentDescription = "Search")
+                        Icon(Icons.Default.Search, contentDescription = "搜索")
                     }
                     IconButton(onClick = viewModel::clearAll) {
-                        Icon(Icons.Default.Delete, contentDescription = "Clear all")
+                        Icon(Icons.Default.Delete, contentDescription = "清空历史")
                     }
                 }
             )
@@ -81,12 +81,12 @@ fun HistoryScreen(
                         viewModel.search(it)
                     },
                     modifier = Modifier.fillMaxWidth().padding(8.dp),
-                    placeholder = { Text("Search history") },
+                    placeholder = { Text("搜索历史记录") },
                     singleLine = true,
                     trailingIcon = {
                         if (query.isNotEmpty()) {
                             IconButton(onClick = { query = ""; viewModel.search("") }) {
-                                Icon(Icons.Default.Clear, contentDescription = "Clear")
+                                Icon(Icons.Default.Clear, contentDescription = "清除输入")
                             }
                         }
                     }
@@ -163,7 +163,7 @@ private fun HistoryItem(
             IconButton(onClick = onDelete) {
                 Icon(
                     Icons.Default.Delete,
-                    contentDescription = "Delete",
+                    contentDescription = "删除",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }

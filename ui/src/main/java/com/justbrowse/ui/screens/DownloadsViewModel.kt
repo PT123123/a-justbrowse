@@ -62,7 +62,7 @@ class DownloadsViewModel @Inject constructor(
                 items.add(
                     DownloadItemData(
                         id = it.getLong(idCol),
-                        fileName = it.getString(titleCol) ?: "Unknown",
+                        fileName = it.getString(titleCol) ?: "未知文件",
                         url = it.getString(urlCol) ?: "",
                         status = it.getInt(statusCol),
                         bytesDownloaded = it.getLong(bytesCol),

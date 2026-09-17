@@ -36,7 +36,8 @@ import java.io.ByteArrayInputStream
 class BrowserEngine(
     private val initialUrl: String,
     private val interceptor: AdBlockInterceptor,
-    private val scriptInjector: ScriptInjector
+    private val scriptInjector: ScriptInjector,
+    private val autofill: PasswordAutofillManager
 ) : ScriptInjectTarget {
 
     companion object {
@@ -44,6 +45,17 @@ class BrowserEngine(
 
         /** 暗色背景色（加载中/兜底底色） */
         private val DARK_BG = android.graphics.Color.parseColor("#121212")
+
+        /**
+         * WebView 自己能处理的 scheme，其余一律视为「外部协议」交给上层唤起对应 App。
+         *
+         * 之前只白名单了 http/https/file/about，于是页面里的 `javascript:`、`blob:`、
+         * `data:`、`ws:` 跳转也被误判成外链抛出去，站点功能会莫名失灵。
+         */
+        private val INTERNAL_SCHEMES = setOf(
+            "http", "https", "file", "about", "javascript", "data", "blob",
+            "ws", "wss", "content", "chrome", "resource"
+        )
     }
 
     var webView: WebView? = null
@@ -70,6 +82,9 @@ class BrowserEngine(
 
     /** 本轮加载是否已经注入过暗色样式（避免 progress 回调里反复注入/刷日志） */
     private var darkInjectedThisLoad = false
+
+    /** 自动填充回调的引擎标识：区分多标签，防串扰 */
+    private val autofillToken: String = java.util.UUID.randomUUID().toString()
 
     /** 最近一次由 TabManager 下发的全局浏览设置（WebView 惰性创建，需暂存到 createWebView 时应用） */
     private var pendingSettings = EngineWebSettings()
@@ -167,6 +182,7 @@ class BrowserEngine(
                 setBackgroundColor(android.graphics.Color.WHITE)
             }
             addJavascriptInterface(scriptInjector.bridge, "GM_Bridge")
+            addJavascriptInterface(autofill.bridge, PasswordAutofillManager.JS_INTERFACE_NAME)
             setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
                 onDownloadListener?.invoke(url, userAgent, contentDisposition, mimeType, contentLength)
             }
@@ -342,7 +358,9 @@ class BrowserEngine(
     private inner class JustBrowseWebViewClient : WebViewClient() {
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             val uri = request.url
-            if (uri.scheme !in setOf("http", "https", "file", "about")) {
+            val scheme = uri.scheme?.lowercase()
+            // taobao://、alipays://、weixin://、intent://、tel:、mailto: 等外部协议 → 交给上层唤起对应 App
+            if (scheme != null && scheme !in INTERNAL_SCHEMES) {
                 onExternalLinkListener?.invoke(uri)
                 return true
             }
@@ -400,6 +418,8 @@ class BrowserEngine(
                 DarkModeInjector.inject(this@BrowserEngine)
             }
             scriptInjector.inject(this@BrowserEngine, url, UserScript.RunAt.DOCUMENT_IDLE)
+            // 登录表单检测：与脚本注入同时机（JS 侧 __jb_af__ 防重）
+            autofill.injectDetection(this@BrowserEngine, url, autofillToken)
         }
 
         /**
@@ -410,6 +430,8 @@ class BrowserEngine(
             if (forceDarkMode) {
                 DarkModeInjector.inject(this@BrowserEngine)
             }
+            // SPA 登录页不会触发 onPageFinished，历史栈更新时补一次检测（JS 侧防重）
+            autofill.injectDetection(this@BrowserEngine, url, autofillToken)
         }
 
         override fun onReceivedError(

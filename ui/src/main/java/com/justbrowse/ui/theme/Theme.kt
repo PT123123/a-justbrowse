@@ -12,6 +12,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import com.justbrowse.data.prefs.DarkThemeVariant
 import com.justbrowse.data.prefs.ThemeMode
 
 /**
@@ -30,6 +31,7 @@ fun resolveDarkTheme(themeMode: ThemeMode): Boolean = when (themeMode) {
     ThemeMode.SYSTEM -> isSystemInDarkTheme()
 }
 
+/** 默认深色：以 #121212 打底 */
 private val DarkColorScheme = darkColorScheme(
     primary = Color(0xFFA8C7FA),
     onPrimary = Color(0xFF0B2A5B),
@@ -47,6 +49,22 @@ private val DarkColorScheme = darkColorScheme(
     outlineVariant = Color(0xFF2E2E35)
 )
 
+/** 纯黑（AMOLED）：背景换成 #000000，配色基调与默认深色保持一致 */
+private val AmoledColorScheme = DarkColorScheme.copy(
+    background = SurfaceAmoled,
+    surface = SurfaceAmoled,
+    surfaceVariant = AmoledSurfaceVariant,
+    outline = Color(0xFF2A2A2A),
+    outlineVariant = Color(0xFF1A1A1A),
+    // 弹窗（AlertDialog）、下拉菜单（DropdownMenu）用的是 surfaceContainer* 系列，
+    // 不一起压暗的话，纯黑模式下会冒出几块灰底浮层。
+    surfaceContainerLowest = Color(0xFF000000),
+    surfaceContainerLow = Color(0xFF0A0A0A),
+    surfaceContainer = Color(0xFF121212),
+    surfaceContainerHigh = Color(0xFF1A1A1A),
+    surfaceContainerHighest = Color(0xFF222222)
+)
+
 private val LightColorScheme = lightColorScheme(
     primary = Purple40,
     secondary = PurpleGrey40,
@@ -56,12 +74,16 @@ private val LightColorScheme = lightColorScheme(
 @Composable
 fun JustBrowseTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
+    darkThemeVariant: DarkThemeVariant = DarkThemeVariant.DEFAULT,
     useDynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val darkTheme = resolveDarkTheme(themeMode)
 
     val colorScheme = when {
+        // 纯黑是用户明确点选的配色，优先级高于动态取色 ——
+        // 否则系统强调色会把 #000000 背景冲掉，这个变体就白选了。
+        darkTheme && darkThemeVariant == DarkThemeVariant.AMOLED -> AmoledColorScheme
         useDynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)

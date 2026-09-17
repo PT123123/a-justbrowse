@@ -7,6 +7,7 @@ import android.os.Environment
 import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.URLUtil
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -17,11 +18,14 @@ import com.justbrowse.data.prefs.SearchEngine
 import com.justbrowse.data.prefs.SettingsDataStore
 import com.justbrowse.domain.model.Bookmark
 import com.justbrowse.domain.model.HistoryEntry
+import com.justbrowse.domain.model.PasswordEntry
 import com.justbrowse.domain.model.Tab
 import com.justbrowse.domain.repository.BookmarkRepository
 import com.justbrowse.data.suggestions.DefaultSites
 import com.justbrowse.data.suggestions.SuggestedSite
 import com.justbrowse.domain.repository.HistoryRepository
+import com.justbrowse.domain.repository.PasswordRepository
+import com.justbrowse.core.webview.PasswordAutofillManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +35,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
@@ -55,8 +61,10 @@ class BrowserViewModel @Inject constructor(
     private val tabManager: TabManager,
     private val historyRepository: HistoryRepository,
     private val bookmarkRepository: BookmarkRepository,
+    private val passwordRepository: PasswordRepository,
     private val settingsDataStore: SettingsDataStore,
     private val scriptInjector: ScriptInjector,
+    private val autofillManager: PasswordAutofillManager,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -114,6 +122,19 @@ class BrowserViewModel @Inject constructor(
         .map { it.searchEngine }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SearchEngine.GOOGLE)
 
+    /** ===== 密码自动填充 ===== */
+
+    /** 待保存的登录凭据（表单提交捕获） */
+    data class SaveCandidate(val origin: String, val username: String, val password: String)
+
+    /** 当前页面可填充的已存凭证（登录表单存在且域匹配时非空） */
+    private val _autofillSuggestions = MutableStateFlow<List<PasswordEntry>>(emptyList())
+    val autofillSuggestions: StateFlow<List<PasswordEntry>> = _autofillSuggestions.asStateFlow()
+
+    /** 待保存凭据；非空时 UI 弹保存对话框 */
+    private val _saveCandidate = MutableStateFlow<SaveCandidate?>(null)
+    val saveCandidate: StateFlow<SaveCandidate?> = _saveCandidate.asStateFlow()
+
     private var currentUrl: String = "about:blank"
 
     init {
@@ -141,6 +162,39 @@ class BrowserViewModel @Inject constructor(
         }
         scriptInjector.bridge.onAddStyle = { css ->
             tabManager.getActiveEngine()?.addUserCss(css)
+        }
+        // 外链处理器下沉到 TabManager：每个新建引擎一创建就绑好，不依赖 UI 层何时回调 bindEngine
+        tabManager.externalLinkHandler = { uri -> openExternal(uri) }
+
+        // 密码自动填充：引擎检测到登录表单/提交时，按域匹配已存凭证或准备保存
+        viewModelScope.launch {
+            autofillManager.state.collect { afState ->
+                when (afState) {
+                    is PasswordAutofillManager.AutofillState.Idle -> {
+                        _autofillSuggestions.value = emptyList()
+                    }
+                    is PasswordAutofillManager.AutofillState.Forms -> {
+                        if (!afState.hasForm) {
+                            _autofillSuggestions.value = emptyList()
+                            return@collect
+                        }
+                        val origin = extractOrigin(afState.url)
+                        _autofillSuggestions.value =
+                            if (origin.isEmpty()) emptyList()
+                            else passwordRepository.findByOrigin(origin)
+                    }
+                    is PasswordAutofillManager.AutofillState.Submitted -> {
+                        val origin = extractOrigin(afState.url)
+                        if (origin.isNotEmpty()) {
+                            _saveCandidate.value = SaveCandidate(
+                                origin = origin,
+                                username = afState.username,
+                                password = afState.password
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -176,12 +230,7 @@ class BrowserViewModel @Inject constructor(
         engine.onPageStartedListener = { url ->
             tabManager.updateTab(tabId) { it.copy(url = url) }
         }
-        engine.onExternalLinkListener = { uri ->
-            try {
-                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-            } catch (e: Exception) {
-            }
-        }
+        engine.onExternalLinkListener = { uri -> openExternal(uri) }
         engine.onCreateWindow = {
             tabManager.createTabForNewWindow()
         }
@@ -232,15 +281,74 @@ class BrowserViewModel @Inject constructor(
      * 离开首页；随后 attach() 创建 WebView 时会加载 engine.url。
      */
     private fun loadInActiveTab(url: String) {
-        val engine = tabManager.getActiveEngine() ?: return
-        engine.loadUrl(url)
-        tabManager.activeTabId.value?.let { tabId ->
-            tabManager.updateTab(tabId) { it.copy(url = url) }
+        val tabId = tabManager.activeTabId.value
+        if (tabId == null) {
+            // 冷启动竞态：标签还没从数据库恢复完（例如从别的 App 点链接唤起本应用），
+            // 直接 return 会把这次导航整个丢掉。等第一个标签就绪后再打开。
+            viewModelScope.launch {
+                val ready = tabManager.activeTabId.filterNotNull().first()
+                loadInTab(ready, url)
+            }
+            return
         }
+        loadInTab(tabId, url)
+    }
+
+    private fun loadInTab(tabId: String, url: String) {
+        tabManager.getEngine(tabId)?.loadUrl(url)
+        tabManager.updateTab(tabId) { it.copy(url = url) }
     }
 
     fun goHome() {
         tabManager.getActiveEngine()?.loadUrl("about:blank")
+    }
+
+    /**
+     * 网页里的非 http(s) 链接（taobao://、alipays://、weixin://、market://、tel:、mailto:，
+     * 以及 Chrome 风格的 `intent://…;end`）交给系统去唤起对应 App。
+     *
+     * 两个关键点：
+     * 1. 这里拿到的是 Application Context，startActivity 必须带 FLAG_ACTIVITY_NEW_TASK，
+     *    否则会抛 AndroidRuntimeException，再被空 catch 静默吞掉 ——
+     *    表现就是「点外链永远跳不过去」。这是跳转全程失败的直接原因。
+     * 2. intent:// 形式要用 Intent.parseUri(URI_INTENT_SCHEME) 解析，
+     *    解析出来的目标打不开时回退到 browser_fallback_url。
+     */
+    fun openExternal(uri: Uri) {
+        val raw = uri.toString()
+        val scheme = uri.scheme?.lowercase()
+
+        if (scheme == "intent" || scheme == "android-app") {
+            val flags =
+                if (scheme == "intent") Intent.URI_INTENT_SCHEME else Intent.URI_ANDROID_APP_SCHEME
+            val parsed = runCatching { Intent.parseUri(raw, flags) }.getOrNull()
+            if (parsed != null) {
+                if (launchExternal(parsed)) return
+                parsed.getStringExtra("browser_fallback_url")
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { fallback ->
+                        loadInActiveTab(fallback)
+                        return
+                    }
+            }
+        } else if (launchExternal(Intent(Intent.ACTION_VIEW, uri))) {
+            return
+        }
+
+        Log.w("JustBrowse", "openExternal: 没有 App 能处理 $raw")
+        Toast.makeText(context, "没有可以打开该链接的应用", Toast.LENGTH_SHORT).show()
+    }
+
+    /** 真正发起跳转；成功返回 true */
+    private fun launchExternal(intent: Intent): Boolean {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return try {
+            context.startActivity(intent)
+            true
+        } catch (e: Exception) {
+            Log.w("JustBrowse", "openExternal 失败: ${intent.toUri(0)}", e)
+            false
+        }
     }
 
     fun toggleReadingMode() {
@@ -337,6 +445,54 @@ class BrowserViewModel @Inject constructor(
 
     fun clearHistory() {
         viewModelScope.launch { historyRepository.clearAll() }
+    }
+
+    /** ===== 密码自动填充动作 ===== */
+
+    /** 把选中凭证填进当前活动页面的登录表单 */
+    fun fillCredentials(entry: PasswordEntry) {
+        val engine = tabManager.getActiveEngine() ?: return
+        autofillManager.fill(engine, entry.username, entry.password)
+    }
+
+    /** 关闭填充条幅（用户点了其他区域/条幅的关闭按钮） */
+    fun dismissAutofill() {
+        autofillManager.clear()
+        _autofillSuggestions.value = emptyList()
+    }
+
+    /** 用户同意保存本次提交的账号密码 */
+    fun confirmSave() {
+        val candidate = _saveCandidate.value ?: return
+        _saveCandidate.value = null
+        viewModelScope.launch {
+            val title = uiState.value.title.ifEmpty { candidate.origin }
+            val existing = passwordRepository
+                .findByOrigin(candidate.origin)
+                .firstOrNull { it.username == candidate.username }
+            passwordRepository.upsert(
+                PasswordEntry(
+                    id = existing?.id ?: UUID.randomUUID().toString(),
+                    origin = candidate.origin,
+                    title = title,
+                    username = candidate.username,
+                    password = candidate.password,
+                    createdAt = existing?.createdAt ?: 0L,
+                    updatedAt = 0L
+                )
+            )
+        }
+    }
+
+    /** 用户拒绝保存 */
+    fun dismissSave() {
+        _saveCandidate.value = null
+    }
+
+    /** 从 URL 提取站点源（host，去 www. 前缀） */
+    private fun extractOrigin(url: String): String {
+        val host = android.net.Uri.parse(url).host ?: return ""
+        return host.lowercase().removePrefix("www.")
     }
 
     private fun handleDownload(

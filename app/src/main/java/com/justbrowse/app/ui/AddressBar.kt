@@ -155,7 +155,7 @@ fun SearchOverlay(
                         }) {
                             Icon(
                                 Icons.Default.Clear,
-                                contentDescription = "Clear",
+                                contentDescription = "清空输入",
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -256,7 +256,7 @@ private fun SuggestionHistoryItem(
             )
         }
         Text(
-            text = "${entry.visitCount}x",
+            text = "${entry.visitCount} 次",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

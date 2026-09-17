@@ -3,6 +3,7 @@ package com.justbrowse.di
 import com.justbrowse.core.adblock.AdBlockInterceptor
 import com.justbrowse.core.scripts.ScriptInjector
 import com.justbrowse.core.webview.BrowserEngine
+import com.justbrowse.core.webview.PasswordAutofillManager
 import com.justbrowse.core.webview.TabManager
 import com.justbrowse.domain.repository.TabRepository
 import dagger.Module
@@ -20,10 +21,11 @@ object WebViewModule {
     fun provideTabManager(
         tabRepository: TabRepository,
         interceptor: AdBlockInterceptor,
-        scriptInjector: ScriptInjector
+        scriptInjector: ScriptInjector,
+        autofill: PasswordAutofillManager
     ): TabManager {
         return TabManager(tabRepository) { initialUrl ->
-            BrowserEngine(initialUrl, interceptor, scriptInjector)
+            BrowserEngine(initialUrl, interceptor, scriptInjector, autofill)
         }
     }
 }

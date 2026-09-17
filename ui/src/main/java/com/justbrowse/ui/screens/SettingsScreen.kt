@@ -73,7 +73,7 @@ fun SettingsScreen(
                     subtitle = when (settings.themeMode) {
                         ThemeMode.SYSTEM -> "跟随系统"
                         ThemeMode.LIGHT -> "浅色"
-                        ThemeMode.DARK -> "深色"
+                        ThemeMode.DARK -> "深色 · ${settings.darkThemeVariant.label}"
                     },
                     onClick = { showThemeDialog = true }
                 )
@@ -112,7 +112,7 @@ fun SettingsScreen(
             }
             item {
                 SwitchSettingsItem(
-                    title = "JavaScript",
+                    title = "JavaScript 脚本",
                     subtitle = "启用网页脚本执行",
                     checked = settings.javaScriptEnabled,
                     onCheckedChange = viewModel::setJavaScriptEnabled

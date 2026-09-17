@@ -4,7 +4,8 @@ import kotlinx.serialization.Serializable
 
 /**
  * 同步数据快照 — 在设备间传输的 JSON 结构。
- * 只包含配置/书签/历史/脚本，不包含密码。
+ * 包含配置/书签/历史/脚本；密码仅以加密 vault 形式出现（[SyncSnapshot.vault]，
+ * 口令派生密钥加密，明文密码不出现在快照中），不开密码同步时 vault 为 null。
  */
 @Serializable
 data class SyncSnapshot(
@@ -15,7 +16,8 @@ data class SyncSnapshot(
     val bookmarks: List<BookmarkSync> = emptyList(),
     val history: List<HistorySync> = emptyList(),
     val scripts: List<ScriptSync> = emptyList(),
-    val settings: Map<String, String> = emptyMap()
+    val settings: Map<String, String> = emptyMap(),
+    val vault: VaultBlob? = null
 )
 
 @Serializable
@@ -50,6 +52,34 @@ data class ScriptSync(
     val source: String,
     val enabled: Boolean,
     val updatedAt: Long
+)
+
+/** 密码条目（vault 加密前的内存结构，仅存在于解密后的内存中） */
+@Serializable
+data class PasswordSync(
+    val id: String,
+    val origin: String,
+    val title: String,
+    val username: String,
+    val password: String,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L
+)
+
+/**
+ * 加密密码库 blob：整个密码列表的 JSON 经口令派生密钥加密后整体传输。
+ * 快照中只有密文（Base64），接收端需输入相同口令解密。
+ * 格式见 [VaultCipher]。
+ */
+@Serializable
+data class VaultBlob(
+    val formatVersion: Int = 1,
+    val kdfSalt: String,
+    val kdfIterations: Int,
+    val iv: String,
+    val ciphertext: String,
+    val itemCount: Int,
+    val senderDeviceName: String
 )
 
 /** 同步响应包装 */
