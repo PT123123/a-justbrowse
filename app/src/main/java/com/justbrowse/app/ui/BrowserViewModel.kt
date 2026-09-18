@@ -11,20 +11,24 @@ import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.justbrowse.app.VideoPlayerActivity
 import com.justbrowse.core.scripts.ScriptInjector
 import com.justbrowse.core.webview.BrowserEngine
+import com.justbrowse.core.webview.SniffedVideo
 import com.justbrowse.core.webview.TabManager
 import com.justbrowse.data.prefs.SearchEngine
 import com.justbrowse.data.prefs.SettingsDataStore
 import com.justbrowse.domain.model.Bookmark
 import com.justbrowse.domain.model.HistoryEntry
 import com.justbrowse.domain.model.PasswordEntry
+import com.justbrowse.domain.model.SpaceId
 import com.justbrowse.domain.model.Tab
 import com.justbrowse.domain.repository.BookmarkRepository
 import com.justbrowse.data.suggestions.DefaultSites
 import com.justbrowse.data.suggestions.SuggestedSite
 import com.justbrowse.domain.repository.HistoryRepository
 import com.justbrowse.domain.repository.PasswordRepository
+import com.justbrowse.domain.space.SpaceController
 import com.justbrowse.core.webview.PasswordAutofillManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -65,8 +69,12 @@ class BrowserViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
     private val scriptInjector: ScriptInjector,
     private val autofillManager: PasswordAutofillManager,
+    private val spaceController: SpaceController,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
+
+    /** 独立空间的闸门状态：进入前要设置 PIN 或验证 PIN */
+    enum class SpaceGate { SETUP_PIN, UNLOCK }
 
     private val _showFindInPageInternal = MutableStateFlow(false)
 
@@ -118,9 +126,129 @@ class BrowserViewModel @Inject constructor(
     private val _isReadingMode = MutableStateFlow(false)
     val isReadingMode: StateFlow<Boolean> = _isReadingMode.asStateFlow()
 
+    /** ===== 视频嗅探 ===== */
+
+    /** 当前页面嗅探到的视频直链（自动 + 手动嗅探更新） */
+    private val _sniffedVideos = MutableStateFlow<List<SniffedVideo>>(emptyList())
+    val sniffedVideos: StateFlow<List<SniffedVideo>> = _sniffedVideos.asStateFlow()
+
+    /** 视频嗅探底部弹层是否可见 */
+    private val _videoSheetVisible = MutableStateFlow(false)
+    val videoSheetVisible: StateFlow<Boolean> = _videoSheetVisible.asStateFlow()
+
+    /** 打开嗅探弹层并立即重新嗅探一次 */
+    fun showVideoSheet() {
+        _videoSheetVisible.value = true
+        sniffVideos()
+    }
+
+    fun hideVideoSheet() {
+        _videoSheetVisible.value = false
+    }
+
+    /** 手动嗅探当前活动页面；结果会同时更新 [sniffedVideos] */
+    fun sniffVideos() {
+        tabManager.getActiveEngine()?.sniffVideos()
+    }
+
+    /** 用自家播放器播放嗅探到的视频（不依赖网页播放器） */
+    fun playSniffedVideo(video: SniffedVideo) {
+        val intent = VideoPlayerActivity.intent(context, video.url, video.displayName, video.poster)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.w("JustBrowse", "无法打开视频播放器: ${video.url}", e)
+            Toast.makeText(context, "无法播放该视频", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     val searchEngine: StateFlow<SearchEngine> = settingsDataStore.settings
         .map { it.searchEngine }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SearchEngine.GOOGLE)
+
+    /** ===== 独立空间 ===== */
+
+    val currentSpace: StateFlow<SpaceId> = spaceController.currentSpace
+    val privateConfigured: StateFlow<Boolean> = spaceController.privateConfigured
+
+    /** 当前空间闸门（进入独立空间前：设置 PIN / 验证 PIN）；null 表示无闸门 */
+    private val _spaceGate = MutableStateFlow<SpaceGate?>(null)
+    val spaceGate: StateFlow<SpaceGate?> = _spaceGate.asStateFlow()
+
+    /** 闸门错误提示（如 PIN 错误 / 长度不足） */
+    private val _spaceError = MutableStateFlow<String?>(null)
+    val spaceError: StateFlow<String?> = _spaceError.asStateFlow()
+
+    /** 当前是否处于独立空间（供 UI 决定入口文案） */
+    val inPrivateSpace: StateFlow<Boolean> = currentSpace
+        .map { it == SpaceId.PRIVATE }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** 菜单/入口点击：在「进入独立空间 / 返回主空间」之间切换，必要时弹出闸门 */
+    fun toggleSpace() {
+        if (currentSpace.value == SpaceId.PRIVATE) {
+            switchToMainSpace()
+            return
+        }
+        if (!privateConfigured.value) {
+            _spaceError.value = null
+            _spaceGate.value = SpaceGate.SETUP_PIN
+        } else {
+            _spaceError.value = null
+            _spaceGate.value = SpaceGate.UNLOCK
+        }
+    }
+
+    /** 首次进入独立空间：设置 PIN（至少 4 位） */
+    fun setupPrivatePin(pin: String) {
+        viewModelScope.launch {
+            if (pin.length < 4) {
+                _spaceError.value = "PIN 至少 4 位"
+                return@launch
+            }
+            spaceController.configureAndEnterPrivateSpace(pin)
+            _spaceError.value = null
+            _spaceGate.value = null
+        }
+    }
+
+    /** 用 PIN 进入独立空间 */
+    fun unlockPrivatePin(pin: String) {
+        viewModelScope.launch {
+            val ok = spaceController.unlockAndEnterPrivateSpace(pin)
+            if (ok) {
+                _spaceError.value = null
+                _spaceGate.value = null
+            } else {
+                _spaceError.value = "PIN 错误，请重试"
+            }
+        }
+    }
+
+    /** 生物识别通过后进入独立空间 */
+    fun unlockPrivateViaBiometric() {
+        viewModelScope.launch {
+            spaceController.unlockAndEnterPrivateSpace(null)
+            _spaceError.value = null
+            _spaceGate.value = null
+        }
+    }
+
+    /** 返回主空间 */
+    fun switchToMainSpace() {
+        viewModelScope.launch {
+            spaceController.switchToMain()
+            _spaceGate.value = null
+            _spaceError.value = null
+        }
+    }
+
+    /** 关闭闸门（不切换空间） */
+    fun cancelSpaceGate() {
+        _spaceGate.value = null
+        _spaceError.value = null
+    }
 
     /** ===== 密码自动填充 ===== */
 
@@ -239,6 +367,13 @@ class BrowserViewModel @Inject constructor(
         }
         engine.onFindResult = { ordinal, total ->
             _findResult.value = ordinal to total
+        }
+        engine.onVideosSniffed = { list ->
+            _sniffedVideos.value = list
+        }
+        engine.onDirectVideo = { url ->
+            // 点击页面里的视频直链：交给自家播放器（悬浮小窗）
+            playSniffedVideo(SniffedVideo(url = url))
         }
     }
 

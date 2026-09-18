@@ -9,6 +9,8 @@ import com.justbrowse.data.db.BookmarkDao
 import com.justbrowse.data.db.HistoryDao
 import com.justbrowse.data.db.PasswordDao
 import com.justbrowse.data.db.TabDao
+import com.justbrowse.data.di.DefaultSpaceDb
+import com.justbrowse.data.di.PrivateSpaceDb
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -36,27 +38,65 @@ object DatabaseModule {
         }
     }
 
-    @Provides
-    @Singleton
-    fun provideDatabase(@ApplicationContext context: Context): AppDatabase =
-        Room.databaseBuilder(context, AppDatabase::class.java, "justbrowse.db")
+    private fun build(context: Context, name: String): AppDatabase =
+        Room.databaseBuilder(context, AppDatabase::class.java, name)
             .addMigrations(MIGRATION_2_3)
             .fallbackToDestructiveMigration()
             .build()
 
     @Provides
     @Singleton
-    fun provideTabDao(db: AppDatabase): TabDao = db.tabDao()
+    @DefaultSpaceDb
+    fun provideMainDatabase(@ApplicationContext context: Context): AppDatabase =
+        build(context, "justbrowse.db")
 
     @Provides
     @Singleton
-    fun provideHistoryDao(db: AppDatabase): HistoryDao = db.historyDao()
+    @PrivateSpaceDb
+    fun providePrivateDatabase(@ApplicationContext context: Context): AppDatabase =
+        build(context, "justbrowse_private.db")
+
+    // ===== 主空间 DAO =====
 
     @Provides
     @Singleton
-    fun provideBookmarkDao(db: AppDatabase): BookmarkDao = db.bookmarkDao()
+    @DefaultSpaceDb
+    fun provideMainTabDao(@DefaultSpaceDb db: AppDatabase): TabDao = db.tabDao()
 
     @Provides
     @Singleton
-    fun providePasswordDao(db: AppDatabase): PasswordDao = db.passwordDao()
+    @DefaultSpaceDb
+    fun provideMainHistoryDao(@DefaultSpaceDb db: AppDatabase): HistoryDao = db.historyDao()
+
+    @Provides
+    @Singleton
+    @DefaultSpaceDb
+    fun provideMainBookmarkDao(@DefaultSpaceDb db: AppDatabase): BookmarkDao = db.bookmarkDao()
+
+    @Provides
+    @Singleton
+    @DefaultSpaceDb
+    fun provideMainPasswordDao(@DefaultSpaceDb db: AppDatabase): PasswordDao = db.passwordDao()
+
+    // ===== 独立空间 DAO =====
+
+    @Provides
+    @Singleton
+    @PrivateSpaceDb
+    fun providePrivateTabDao(@PrivateSpaceDb db: AppDatabase): TabDao = db.tabDao()
+
+    @Provides
+    @Singleton
+    @PrivateSpaceDb
+    fun providePrivateHistoryDao(@PrivateSpaceDb db: AppDatabase): HistoryDao = db.historyDao()
+
+    @Provides
+    @Singleton
+    @PrivateSpaceDb
+    fun providePrivateBookmarkDao(@PrivateSpaceDb db: AppDatabase): BookmarkDao = db.bookmarkDao()
+
+    @Provides
+    @Singleton
+    @PrivateSpaceDb
+    fun providePrivatePasswordDao(@PrivateSpaceDb db: AppDatabase): PasswordDao = db.passwordDao()
 }
