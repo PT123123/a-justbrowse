@@ -35,6 +35,9 @@ dependencies {
     implementation(libs.coroutines.android)
     implementation(libs.lifecycle.runtime.ktx)
 
+    // WebView 多 profile：为独立空间提供按空间的 cookie / 站点存储隔离
+    implementation(libs.webkit)
+
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
 

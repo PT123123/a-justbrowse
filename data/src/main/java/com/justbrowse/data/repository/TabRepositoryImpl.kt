@@ -2,41 +2,57 @@ package com.justbrowse.data.repository
 
 import com.justbrowse.data.db.TabDao
 import com.justbrowse.data.db.TabEntity
+import com.justbrowse.data.di.DefaultSpaceDb
+import com.justbrowse.data.di.PrivateSpaceDb
+import com.justbrowse.domain.model.SpaceId
 import com.justbrowse.domain.model.Tab
 import com.justbrowse.domain.repository.TabRepository
+import com.justbrowse.domain.space.SpaceController
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class TabRepositoryImpl @Inject constructor(
-    private val tabDao: TabDao
+    @DefaultSpaceDb private val mainDao: TabDao,
+    @PrivateSpaceDb private val privateDao: TabDao,
+    private val spaceController: SpaceController
 ) : TabRepository {
 
+    private fun daoFor(space: SpaceId): TabDao =
+        if (space == SpaceId.PRIVATE) privateDao else mainDao
+
     override fun observeTabs(): Flow<List<Tab>> =
-        tabDao.observeAll().map { list -> list.map { it.toDomain() } }
+        spaceController.currentSpace
+            .flatMapLatest { daoFor(it).observeAll() }
+            .map { list -> list.map { it.toDomain() } }
 
     override fun observeActiveTab(): Flow<Tab?> =
-        tabDao.observeActive().map { it?.toDomain() }
+        spaceController.currentSpace
+            .flatMapLatest { daoFor(it).observeActive() }
+            .map { it?.toDomain() }
 
     override suspend fun getTab(tabId: String): Tab? =
-        tabDao.getById(tabId)?.toDomain()
+        daoFor(spaceController.currentSpace.value).getById(tabId)?.toDomain()
 
     override suspend fun saveTab(tab: Tab) {
-        tabDao.upsert(tab.toEntity(tabDao.count()))
+        val dao = daoFor(spaceController.currentSpace.value)
+        dao.upsert(tab.toEntity(dao.count()))
     }
 
     override suspend fun deleteTab(tabId: String) {
-        tabDao.delete(tabId)
+        daoFor(spaceController.currentSpace.value).delete(tabId)
     }
 
     override suspend fun setActiveTab(tabId: String) {
-        tabDao.clearActive()
-        tabDao.setActive(tabId)
+        val dao = daoFor(spaceController.currentSpace.value)
+        dao.clearActive()
+        dao.setActive(tabId)
     }
 
-    override suspend fun count(): Int = tabDao.count()
+    override suspend fun count(): Int = daoFor(spaceController.currentSpace.value).count()
 
     private fun TabEntity.toDomain() = Tab(
         id = id,

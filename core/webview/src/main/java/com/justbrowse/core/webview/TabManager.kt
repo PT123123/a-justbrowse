@@ -1,10 +1,9 @@
 package com.justbrowse.core.webview
 
 import android.net.Uri
-import android.webkit.CookieManager
-import android.webkit.WebStorage
 import com.justbrowse.domain.model.Tab
 import com.justbrowse.domain.repository.TabRepository
+import com.justbrowse.domain.space.SpaceController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -14,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -51,6 +51,8 @@ private data class NavigationState(
 @Singleton
 class TabManager @Inject constructor(
     private val tabRepository: TabRepository,
+    private val spaceController: SpaceController,
+    private val spaceWebViewProfile: SpaceWebViewProfile,
     private val engineFactory: (String) -> BrowserEngine
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -118,23 +120,25 @@ class TabManager @Inject constructor(
     }
 
     init {
+        // 每个空间有独立的标签集合与会话。空间切换（含每次冷启动默认主空间）时
+        // 销毁旧空间的引擎并按当前空间的独立数据库重建标签。
         scope.launch {
-            // 只在启动时从数据库恢复一次，此后以内存态为唯一事实来源。
-            // 否则「关闭最后一个标签」（先写入新 tab、再删除旧 tab）的中间态会被
-            // 回灌进内存，出现标签复活 / 重复创建。
-            var restored = false
-            tabRepository.observeTabs().collect { persisted ->
-                if (restored) return@collect
-                restored = true
-                if (persisted.isEmpty()) {
-                    // 首次启动：创建一个空白 tab
-                    createTabInternal("about:blank", activate = true)
-                } else {
-                    _tabs.value = persisted
-                    val active = persisted.firstOrNull { it.isActive } ?: persisted.first()
-                    _activeTabId.value = active.id
-                }
-            }
+            spaceController.currentSpace.collect { rebuildForSpace() }
+        }
+    }
+
+    /** 销毁旧空间的引擎，并按当前空间从数据库重建标签与会话 */
+    private suspend fun rebuildForSpace() {
+        engines.keys.toList().forEach { id -> engines.remove(id)?.destroy() }
+        val persisted = tabRepository.observeTabs().first()
+        if (persisted.isEmpty()) {
+            _tabs.value = emptyList()
+            _activeTabId.value = null
+            createTabInternal("about:blank", activate = true)
+        } else {
+            _tabs.value = persisted
+            val active = persisted.firstOrNull { it.isActive } ?: persisted.first()
+            _activeTabId.value = active.id
         }
     }
 
@@ -162,12 +166,9 @@ class TabManager @Inject constructor(
         engines.values.forEach { it.refreshAdblockCss() }
     }
 
-    /** 清除 WebView 侧浏览数据：Cookie、网站存储（localStorage/WebSQL）与各引擎内存缓存 */
+    /** 清除当前空间的 WebView 侧浏览数据：按空间清 Cookie、站点存储与各引擎内存缓存 */
     fun clearWebData() {
-        val cookieManager = CookieManager.getInstance()
-        cookieManager.removeAllCookies(null)
-        cookieManager.flush()
-        WebStorage.getInstance().deleteAllData()
+        spaceWebViewProfile.clearWebData(spaceController.currentSpace.value)
         engines.values.forEach { it.webView?.clearCache(true) }
     }
 

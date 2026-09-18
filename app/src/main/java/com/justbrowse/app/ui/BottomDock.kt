@@ -17,7 +17,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Download
@@ -28,6 +27,7 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -51,27 +51,27 @@ import androidx.compose.ui.unit.dp
 
 /**
  * v3 底部停靠栏（夸克式）：
- * 一条长地址栏胶囊（内嵌返回/前进/刷新/收藏）+ 标签计数按钮 + 更多菜单。
+ * 一条长地址栏胶囊（内嵌返回/刷新/安全状态/收藏按钮，前进已移至菜单）+ 标签计数按钮 + 更多菜单。
  * 点击胶囊进入搜索覆盖层；点击标签按钮展开标签面板。
  */
 @Composable
 fun BottomDock(
     state: BrowserUiState,
-    isBookmarked: Boolean,
     darkMode: Boolean,
     showMenu: Boolean,
+    inPrivateSpace: Boolean,
     onCapsuleClick: () -> Unit,
     onTabClick: () -> Unit,
     onBack: () -> Unit,
     onForward: () -> Unit,
     onReload: () -> Unit,
     onStopLoading: () -> Unit,
-    onToggleBookmark: () -> Unit,
     onMenuClick: () -> Unit,
     onMenuDismiss: () -> Unit,
     onMenuHome: () -> Unit,
     onMenuRefresh: () -> Unit,
     onMenuFind: () -> Unit,
+    onMenuVideoSniff: () -> Unit,
     onMenuDark: () -> Unit,
     onMenuBookmarks: () -> Unit,
     onMenuHistory: () -> Unit,
@@ -80,6 +80,7 @@ fun BottomDock(
     onMenuSync: () -> Unit,
     onMenuPasswords: () -> Unit,
     onMenuSettings: () -> Unit,
+    onMenuSpace: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isHome = state.activeUrl.isEmpty()
@@ -116,13 +117,6 @@ fun BottomDock(
                     Icon(
                         Icons.Default.ArrowBack,
                         contentDescription = "后退",
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                IconButton(onClick = onForward, enabled = state.canGoForward) {
-                    Icon(
-                        Icons.Default.ArrowForward,
-                        contentDescription = "前进",
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -171,18 +165,6 @@ fun BottomDock(
                         )
                     }
                 }
-                IconButton(onClick = onToggleBookmark) {
-                    Icon(
-                        if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                        contentDescription = if (isBookmarked) "取消收藏" else "收藏本页",
-                        tint = if (isBookmarked) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier.size(19.dp)
-                    )
-                }
             }
 
             Spacer(Modifier.width(6.dp))
@@ -219,14 +201,42 @@ fun BottomDock(
                         onClick = onMenuHome
                     )
                     DropdownMenuItem(
+                        text = {
+                            Text(if (inPrivateSpace) "独立空间 ✓" else "独立空间")
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = if (inPrivateSpace) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        },
+                        onClick = onMenuSpace
+                    )
+                    DropdownMenuItem(
                         text = { Text("刷新") },
                         leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
                         onClick = onMenuRefresh
                     )
                     DropdownMenuItem(
+                        text = { Text("前进") },
+                        enabled = state.canGoForward,
+                        leadingIcon = { Icon(Icons.Default.ArrowForward, contentDescription = null) },
+                        onClick = onForward
+                    )
+                    DropdownMenuItem(
                         text = { Text("页内查找") },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                         onClick = onMenuFind
+                    )
+                    DropdownMenuItem(
+                        text = { Text("视频嗅探") },
+                        leadingIcon = { Icon(Icons.Default.OndemandVideo, contentDescription = null) },
+                        onClick = onMenuVideoSniff
                     )
                     DropdownMenuItem(
                         text = { Text(if (darkMode) "深色模式 ✓" else "深色模式") },

@@ -44,5 +44,14 @@
                 <data android:scheme="https" />
             </intent-filter>
         </activity>
+
+        <!-- 自家视频播放器：默认先进 PiP 悬浮小窗播放，黑底、旋转不重建 -->
+        <activity
+            android:name=".VideoPlayerActivity"
+            android:exported="false"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
     </application>
 </manifest>

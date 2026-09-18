@@ -5,6 +5,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,9 +49,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.justbrowse.data.prefs.DarkThemeVariant
 import com.justbrowse.data.prefs.ThemeMode
@@ -86,12 +90,16 @@ fun BrowserScreen(
     val state by viewModel.uiState.collectAsState()
     val suggestions by viewModel.suggestions.collectAsState()
     val showSuggestions by viewModel.showSuggestions.collectAsState()
-    val isBookmarked by viewModel.isBookmarked.collectAsState()
     val searchEngine by viewModel.searchEngine.collectAsState()
     val findQuery by viewModel.findQuery.collectAsState()
     val findResult by viewModel.findResult.collectAsState()
     val autofillSuggestions by viewModel.autofillSuggestions.collectAsState()
     val saveCandidate by viewModel.saveCandidate.collectAsState()
+    val sniffedVideos by viewModel.sniffedVideos.collectAsState()
+    val videoSheetVisible by viewModel.videoSheetVisible.collectAsState()
+    val spaceGate by viewModel.spaceGate.collectAsState()
+    val spaceError by viewModel.spaceError.collectAsState()
+    val inPrivateSpace by viewModel.inPrivateSpace.collectAsState()
     val awaitingUrl by pendingUrl.collectAsState()
 
     var showTabSheet by remember { mutableStateOf(false) }
@@ -340,16 +348,15 @@ fun BrowserScreen(
         // ===== 底部停靠栏（常驻在内容区之下，不再压住网页） =====
         BottomDock(
             state = state,
-            isBookmarked = isBookmarked,
             darkMode = darkMode,
             showMenu = showMenu,
+            inPrivateSpace = inPrivateSpace,
             onCapsuleClick = { showSearchOverlay = true },
             onTabClick = { showTabSheet = true },
             onBack = viewModel::goBack,
             onForward = viewModel::goForward,
             onReload = viewModel::reload,
             onStopLoading = viewModel::stopLoading,
-            onToggleBookmark = viewModel::toggleBookmark,
             onMenuClick = { showMenu = true },
             onMenuDismiss = { showMenu = false },
             onMenuHome = {
@@ -363,6 +370,10 @@ fun BrowserScreen(
             onMenuFind = {
                 showMenu = false
                 viewModel.showFindInPage()
+            },
+            onMenuVideoSniff = {
+                showMenu = false
+                viewModel.showVideoSheet()
             },
             onMenuDark = {
                 showMenu = false
@@ -395,6 +406,10 @@ fun BrowserScreen(
             onMenuSettings = {
                 showMenu = false
                 onNavigateToSettings()
+            },
+            onMenuSpace = {
+                showMenu = false
+                viewModel.toggleSpace()
             }
         )
     }
@@ -450,6 +465,16 @@ fun BrowserScreen(
         )
     }
 
+    // ===== 视频嗅探弹层（列出页面视频，点击用自家播放器播放） =====
+    if (videoSheetVisible) {
+        VideoSniffSheet(
+            videos = sniffedVideos,
+            onDismiss = viewModel::hideVideoSheet,
+            onResniff = viewModel::sniffVideos,
+            onPlay = viewModel::playSniffedVideo
+        )
+    }
+
     // ===== 深色模式选择（可挑具体深色配色，也保留关闭/跟随系统） =====
     if (showDarkModeDialog) {
         AlertDialog(
@@ -490,6 +515,46 @@ fun BrowserScreen(
             }
         )
     }
+
+    // ===== 独立空间闸门（进入前设置/验证 PIN，或用生物识别解锁） =====
+    spaceGate?.let { gate ->
+        SpaceGateDialog(
+            gate = gate,
+            error = spaceError,
+            onSetupPin = viewModel::setupPrivatePin,
+            onUnlockPin = viewModel::unlockPrivatePin,
+            onBiometricUnlock = {
+                (context as? FragmentActivity)?.let { fa ->
+                    launchBiometricUnlock(fa, viewModel::unlockPrivateViaBiometric)
+                }
+            },
+            onDismiss = viewModel::cancelSpaceGate
+        )
+    }
+}
+
+/** 生物识别验证通过后进入独立空间（失败/取消由系统弹窗自行处理）。 */
+private fun launchBiometricUnlock(
+    fragmentActivity: FragmentActivity,
+    onSucceeded: () -> Unit
+) {
+    val executor = ContextCompat.getMainExecutor(fragmentActivity)
+    val prompt = BiometricPrompt(
+        fragmentActivity,
+        executor,
+        object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                onSucceeded()
+            }
+        }
+    )
+    val info = BiometricPrompt.PromptInfo.Builder()
+        .setTitle("验证身份")
+        .setSubtitle("验证后进入独立空间")
+        .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+        .setNegativeButtonText("取消")
+        .build()
+    prompt.authenticate(info)
 }
 
 @Composable
