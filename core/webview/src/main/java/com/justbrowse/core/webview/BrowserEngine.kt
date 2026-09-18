@@ -24,6 +24,7 @@ import android.widget.FrameLayout
 import com.justbrowse.core.adblock.AdBlockInterceptor
 import com.justbrowse.core.scripts.ScriptInjector
 import com.justbrowse.core.scripts.ScriptInjectTarget
+import com.justbrowse.domain.model.SpaceId
 import com.justbrowse.domain.model.UserScript
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,7 +39,9 @@ class BrowserEngine(
     private val initialUrl: String,
     private val interceptor: AdBlockInterceptor,
     private val scriptInjector: ScriptInjector,
-    private val autofill: PasswordAutofillManager
+    private val autofill: PasswordAutofillManager,
+    private val spaceId: SpaceId,
+    private val spaceWebViewProfile: SpaceWebViewProfile
 ) : ScriptInjectTarget {
 
     companion object {
@@ -56,6 +59,12 @@ class BrowserEngine(
         private val INTERNAL_SCHEMES = setOf(
             "http", "https", "file", "about", "javascript", "data", "blob",
             "ws", "wss", "content", "chrome", "resource"
+        )
+
+        /** 直接导航到这类文件时截住，交给自家播放器（而非网页播放器） */
+        private val VIDEO_EXTENSIONS = setOf(
+            ".mp4", ".m4v", ".webm", ".ogv", ".ogg", ".mov", ".3gp",
+            ".mkv", ".flv", ".ts", ".m3u8", ".mpd", ".aac", ".mp3"
         )
     }
 
@@ -153,9 +162,18 @@ class BrowserEngine(
     /** 页内查找结果回调（参数：当前第几处、总匹配数；无匹配时不回调） */
     var onFindResult: ((activeOrdinal: Int, totalMatches: Int) -> Unit)? = null
 
+    /** 嗅探到页面视频直链回调（自动嗅探 + 手动嗅探共用） */
+    var onVideosSniffed: ((List<SniffedVideo>) -> Unit)? = null
+
+    /**
+     * 用户点击了指向视频文件的直链（主框架导航到 .mp4/.m3u8/.webm 等）。
+     * 交给上层用自家播放器播放，而不是让网页自己弹播放器。
+     */
+    var onDirectVideo: ((url: String) -> Unit)? = null
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView(context: Context): WebView {
-        val wv = WebView(context).apply {
+        val wv = WebView(context).also { spaceWebViewProfile.attach(it, spaceId) }.apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
@@ -319,6 +337,14 @@ class BrowserEngine(
         webView?.clearMatches()
     }
 
+    /** 手动嗅探当前页面的视频直链（结果经 [onVideosSniffed] 或显式回调返回） */
+    fun sniffVideos(callback: ((List<SniffedVideo>) -> Unit)? = null) {
+        VideoSniffer.sniff(this) { list ->
+            callback?.invoke(list)
+            onVideosSniffed?.invoke(list)
+        }
+    }
+
     /** 设置变更时由 TabManager 调用：立即作用于已创建的 WebView，并暂存给未来创建的 WebView */
     fun applyLiveSettings(settings: EngineWebSettings) {
         pendingSettings = settings
@@ -364,6 +390,12 @@ class BrowserEngine(
             .substringBefore(":")
     }
 
+    /** URL 是否指向可直接播放的视频文件（按路径扩展名判定，忽略查询串） */
+    private fun isDirectVideoUrl(url: String): Boolean {
+        val path = url.substringBefore('?').substringBefore('#')
+        return VIDEO_EXTENSIONS.any { path.endsWith(it, ignoreCase = true) }
+    }
+
     private fun applyElementHidingCss(view: WebView, css: String) {
         val escapedCss = css.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n")
         val js = if (css.isEmpty()) {
@@ -384,17 +416,34 @@ class BrowserEngine(
                 onExternalLinkListener?.invoke(uri)
                 return true
             }
+            // 主框架直接导航到视频文件（.mp4/.m3u8/.webm 等）：截住交给自家播放器，
+            // 避免网页自己的播放器接管（这也是「尽量不用网页播放器」的一部分）。
+            //
+            // 注意：不能在这里同步启动播放器 Activity —— WebView 原生层（monochrome）
+            // 在导航回调里检测到启动新 Activity + 返回 true 的组合会触发 native SIGTRAP
+            // 崩溃（manifest/机型相关）。因此只需返回 true 抢占导航，实际打开动作
+            // post 到主线程下一轮消息循环，等本回调干净返回后再执行。
+            if (request.isForMainFrame && scheme in setOf("http", "https") &&
+                isDirectVideoUrl(uri.toString())
+            ) {
+                val videoUrl = uri.toString()
+                view.post { onDirectVideo?.invoke(videoUrl) }
+                return true
+            }
             // DNT 请求头无法全局注入：仅对主文档的 GET 导航重新派发带上请求头。
             // 必须跳过重定向与 POST：
             //  - 重定向链（OAuth 回调 / 302 链）重新派发会丢表单数据、破坏登录流程，
             //    第三方登录「重定向后不跳转」就是这个导致的（DNT 默认开启）；
             //  - POST（表单提交）重新派发会变成 GET，登录表单直接失效。
+            // 与视频分支同理：不能在这个原生导航回调里同步 loadUrl（会造成导航重入，
+            // 在部分系统 WebView 上触发 native SIGTRAP 崩溃），延迟到主线程下一轮执行。
             if (request.isForMainFrame && pendingSettings.doNotTrack &&
                 !request.isRedirect &&
                 request.method.equals("GET", ignoreCase = true) &&
                 uri.scheme in setOf("http", "https")
             ) {
-                view.loadUrl(uri.toString(), dntHeaders())
+                val target = uri.toString()
+                view.post { view.loadUrl(target, dntHeaders()) }
                 return true
             }
             return false
@@ -421,6 +470,11 @@ class BrowserEngine(
             // 每次新导航都允许重新注入（否则同 URL 刷新/重定向后 CSS 暗色与用户脚本不会重挂）
             lastInjectedUrl = null
             darkInjectedThisLoad = false
+            // 页已开始加载：立即强制压黑压反，压掉「跳转/加载早段」的白底闪烁；
+            // 后续 progress/finished 的智能判定会决定是保留还是还原为页面自身颜色。
+            if (forceDarkMode) {
+                DarkModeInjector.injectEarly(this@BrowserEngine)
+            }
             onPageStartedListener?.invoke(url)
         }
 
@@ -446,6 +500,8 @@ class BrowserEngine(
             scriptInjector.inject(this@BrowserEngine, url, UserScript.RunAt.DOCUMENT_IDLE)
             // 登录表单检测：与脚本注入同时机（JS 侧 __jb_af__ 防重）
             autofill.injectDetection(this@BrowserEngine, url, autofillToken)
+            // 页面加载完成自动嗅探一次视频直链（SPA 场景在 doUpdateVisitedHistory 补）
+            sniffVideos()
         }
 
         /**
@@ -458,6 +514,8 @@ class BrowserEngine(
             }
             // SPA 登录页不会触发 onPageFinished，历史栈更新时补一次检测（JS 侧防重）
             autofill.injectDetection(this@BrowserEngine, url, autofillToken)
+            // SPA 切页后视频可能变了，补一次嗅探
+            sniffVideos()
         }
 
         override fun onReceivedError(

@@ -5,11 +5,13 @@ import com.justbrowse.data.repository.HistoryRepositoryImpl
 import com.justbrowse.data.repository.PasswordRepositoryImpl
 import com.justbrowse.data.repository.ScriptRepositoryImpl
 import com.justbrowse.data.repository.TabRepositoryImpl
+import com.justbrowse.data.space.SpaceControllerImpl
 import com.justbrowse.domain.repository.BookmarkRepository
 import com.justbrowse.domain.repository.HistoryRepository
 import com.justbrowse.domain.repository.PasswordRepository
 import com.justbrowse.domain.repository.ScriptRepository
 import com.justbrowse.domain.repository.TabRepository
+import com.justbrowse.domain.space.SpaceController
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -39,4 +41,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindPasswordRepository(impl: PasswordRepositoryImpl): PasswordRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindSpaceController(impl: SpaceControllerImpl): SpaceController
 }
