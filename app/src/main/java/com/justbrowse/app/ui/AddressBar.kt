@@ -2,17 +2,21 @@ package com.justbrowse.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -49,9 +53,25 @@ import com.justbrowse.data.suggestions.DefaultSites
 import com.justbrowse.data.suggestions.SuggestedSite
 import com.justbrowse.domain.model.HistoryEntry
 
+/** 键盘上方快捷输入栏的后缀项，参考主流浏览器的 .com / .cn 快捷输入。 */
+private val UrlSuffixes = listOf(".com", ".cn", ".net", ".org", ".io", "/")
+
+/**
+ * 把快捷后缀接到输入末尾。
+ * 若末尾已经是列表中的其他后缀则替换，避免拼出 a.com.cn 这类结果；末尾已有 "/" 时重复点击 "/" 不追加。
+ */
+private fun applyUrlSuffix(input: String, suffix: String): String {
+    val text = input.trimEnd()
+    if (text.isEmpty()) return text
+    if (suffix == "/" && text.endsWith("/")) return text
+    val existing = UrlSuffixes
+        .firstOrNull { it != "/" && text.endsWith(it, ignoreCase = true) }
+    return if (existing != null) text.dropLast(existing.length) + suffix else text + suffix
+}
+
 /**
  * v3 搜索覆盖层：点击底部地址栏胶囊后全屏弹出。
- * 顶部输入框（带搜索引擎切换），下方为历史建议 / 常用网站列表。
+ * 顶部输入框（带搜索引擎切换），下方为历史建议 / 常用网站列表，键盘上方为网址后缀快捷栏。
  */
 @Composable
 fun SearchOverlay(
@@ -76,7 +96,7 @@ fun SearchOverlay(
     }
 
     Surface(color = MaterialTheme.colorScheme.surface, modifier = modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+        Column(modifier = Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -163,7 +183,7 @@ fun SearchOverlay(
                 }
             }
 
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(modifier = Modifier.weight(1f)) {
                 val hist = if (showSuggestions) suggestions else emptyList()
                 val defaults = if (showSuggestions && suggestions.isEmpty() && editing.length >= 2) {
                     DefaultSites.search(editing, 4)
@@ -207,6 +227,47 @@ fun SearchOverlay(
                         }
                     }
                 }
+            }
+
+            if (editing.isNotEmpty()) {
+                SuffixToolbar(
+                    onSuffix = { suffix ->
+                        val next = applyUrlSuffix(editing, suffix)
+                        editing = next
+                        onUrlChange(next)
+                    }
+                )
+            }
+        }
+    }
+}
+
+/** 键盘上方的网址后缀快捷栏。 */
+@Composable
+private fun SuffixToolbar(onSuffix: (String) -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            UrlSuffixes.forEach { suffix ->
+                Text(
+                    text = suffix,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { onSuffix(suffix) }
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                )
             }
         }
     }

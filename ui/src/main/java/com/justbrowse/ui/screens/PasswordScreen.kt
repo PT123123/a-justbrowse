@@ -98,7 +98,7 @@ private fun PasswordLockedScreen(
             )
             Spacer(Modifier.height(16.dp))
             Text(
-                text = error ?: "需要验证锁屏密码",
+                text = error ?: "需要验证生物识别或锁屏密码",
                 style = MaterialTheme.typography.bodyLarge,
                 color = if (error != null) MaterialTheme.colorScheme.error
                 else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -118,7 +118,7 @@ fun PasswordScreen(
 ) {
     val context = LocalContext.current
 
-    // ===== 锁屏验证门：进入密码管理器必须先通过系统锁屏凭据验证 =====
+    // ===== 验证门：进入密码管理器必须先通过系统生物识别或锁屏凭据验证 =====
     var unlocked by rememberSaveable { mutableStateOf(false) }
     var authError by remember { mutableStateOf<String?>(null) }
     val authLauncher = rememberLauncherForActivityResult(

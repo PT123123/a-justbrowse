@@ -1,5 +1,6 @@
 package com.justbrowse.app.ui
 
+import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -12,9 +13,12 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.justbrowse.app.VideoPlayerActivity
+import com.justbrowse.app.tts.PageReader
+import com.justbrowse.app.tts.ReadingState
 import com.justbrowse.data.crash.CrashLogger
 import com.justbrowse.core.scripts.ScriptInjector
 import com.justbrowse.core.webview.BrowserEngine
+import com.justbrowse.core.webview.ReadingMode
 import com.justbrowse.core.webview.SniffedVideo
 import com.justbrowse.core.webview.TabManager
 import com.justbrowse.data.prefs.SearchEngine
@@ -59,6 +63,8 @@ data class BrowserUiState(
     val isLoading: Boolean = false,
     val hasError: Boolean = false,
     val showFindInPage: Boolean = false,
+    /** 当前标签是否「适应屏幕」排版（false = 电脑版） */
+    val fitScreen: Boolean = true,
     /**
      * 当前标签是不是 `window.open` 弹出的授权窗。
      *
@@ -77,12 +83,17 @@ class BrowserViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
     private val scriptInjector: ScriptInjector,
     private val autofillManager: PasswordAutofillManager,
+    private val pageReader: PageReader,
     private val spaceController: SpaceController,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
-    /** 独立空间的闸门状态：进入前要设置 PIN 或验证 PIN */
-    enum class SpaceGate { SETUP_PIN, UNLOCK }
+    /**
+     * 独立空间的进入验证方式：
+     * - [SYSTEM]：设备已设锁屏凭据，直接走系统验证（锁屏密码 / 生物识别）；
+     * - [PIN_SETUP] / [PIN_UNLOCK]：设备没有锁屏凭据时的兜底，用应用内自设 PIN。
+     */
+    enum class SpaceAuth { SYSTEM, PIN_SETUP, PIN_UNLOCK }
 
     private val _showFindInPageInternal = MutableStateFlow(false)
 
@@ -106,6 +117,7 @@ class BrowserViewModel @Inject constructor(
             isLoading = snapshot?.isLoading ?: false,
             hasError = snapshot?.errorCode != null,
             showFindInPage = showFind,
+            fitScreen = snapshot?.fitScreen ?: true,
             isPopupWindow = isPopupWindow
         )
     }.stateIn(
@@ -183,11 +195,11 @@ class BrowserViewModel @Inject constructor(
     val currentSpace: StateFlow<SpaceId> = spaceController.currentSpace
     val privateConfigured: StateFlow<Boolean> = spaceController.privateConfigured
 
-    /** 当前空间闸门（进入独立空间前：设置 PIN / 验证 PIN）；null 表示无闸门 */
-    private val _spaceGate = MutableStateFlow<SpaceGate?>(null)
-    val spaceGate: StateFlow<SpaceGate?> = _spaceGate.asStateFlow()
+    /** 当前待执行的进入验证；null 表示没有进行中的验证 */
+    private val _spaceAuth = MutableStateFlow<SpaceAuth?>(null)
+    val spaceAuth: StateFlow<SpaceAuth?> = _spaceAuth.asStateFlow()
 
-    /** 闸门错误提示（如 PIN 错误 / 长度不足） */
+    /** PIN 兜底路径的错误提示（如 PIN 错误 / 长度不足） */
     private val _spaceError = MutableStateFlow<String?>(null)
     val spaceError: StateFlow<String?> = _spaceError.asStateFlow()
 
@@ -196,22 +208,31 @@ class BrowserViewModel @Inject constructor(
         .map { it == SpaceId.PRIVATE }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    /** 菜单/入口点击：在「进入独立空间 / 返回主空间」之间切换，必要时弹出闸门 */
+    /**
+     * 菜单/入口点击：在「进入独立空间 / 返回主空间」之间切换。
+     *
+     * 进入独立空间优先用系统验证（锁屏密码 / 生物识别）—— 设备设了锁屏凭据就有系统
+     * 验证可用，不再需要应用内自设凭证；只有设备完全没有锁屏凭据时才退回应用内 PIN。
+     */
     fun toggleSpace() {
         if (currentSpace.value == SpaceId.PRIVATE) {
             switchToMainSpace()
             return
         }
-        if (!privateConfigured.value) {
-            _spaceError.value = null
-            _spaceGate.value = SpaceGate.SETUP_PIN
-        } else {
-            _spaceError.value = null
-            _spaceGate.value = SpaceGate.UNLOCK
+        _spaceError.value = null
+        _spaceAuth.value = when {
+            isDeviceSecure() -> SpaceAuth.SYSTEM
+            !privateConfigured.value -> SpaceAuth.PIN_SETUP
+            else -> SpaceAuth.PIN_UNLOCK
         }
     }
 
-    /** 首次进入独立空间：设置 PIN（至少 4 位） */
+    /** 设备是否设置了锁屏凭据（PIN/图案/密码）—— 只有它才能承载系统验证 */
+    private fun isDeviceSecure(): Boolean =
+        (context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager)
+            ?.isDeviceSecure == true
+
+    /** 无锁屏凭据时的兜底：首次进入独立空间，设置应用内 PIN（至少 4 位） */
     fun setupPrivatePin(pin: String) {
         viewModelScope.launch {
             if (pin.length < 4) {
@@ -220,44 +241,49 @@ class BrowserViewModel @Inject constructor(
             }
             spaceController.configureAndEnterPrivateSpace(pin)
             _spaceError.value = null
-            _spaceGate.value = null
+            _spaceAuth.value = null
         }
     }
 
-    /** 用 PIN 进入独立空间 */
+    /** 无锁屏凭据时的兜底：用应用内 PIN 进入独立空间 */
     fun unlockPrivatePin(pin: String) {
         viewModelScope.launch {
             val ok = spaceController.unlockAndEnterPrivateSpace(pin)
             if (ok) {
                 _spaceError.value = null
-                _spaceGate.value = null
+                _spaceAuth.value = null
             } else {
                 _spaceError.value = "PIN 错误，请重试"
             }
         }
     }
 
-    /** 生物识别通过后进入独立空间 */
-    fun unlockPrivateViaBiometric() {
+    /** 系统验证（锁屏密码 / 生物识别）通过后进入独立空间 */
+    fun onSystemAuthSucceeded() {
         viewModelScope.launch {
             spaceController.unlockAndEnterPrivateSpace(null)
             _spaceError.value = null
-            _spaceGate.value = null
+            _spaceAuth.value = null
         }
+    }
+
+    /** 系统验证取消或失败：收起待验证状态（提示由系统弹窗自行呈现） */
+    fun onSystemAuthCancelled() {
+        _spaceAuth.value = null
     }
 
     /** 返回主空间 */
     fun switchToMainSpace() {
         viewModelScope.launch {
             spaceController.switchToMain()
-            _spaceGate.value = null
+            _spaceAuth.value = null
             _spaceError.value = null
         }
     }
 
-    /** 关闭闸门（不切换空间） */
-    fun cancelSpaceGate() {
-        _spaceGate.value = null
+    /** 关闭验证流程（不切换空间） */
+    fun cancelSpaceAuth() {
+        _spaceAuth.value = null
         _spaceError.value = null
     }
 
@@ -369,6 +395,9 @@ class BrowserViewModel @Inject constructor(
         engine.onPageStartedListener = { url ->
             CrashLogger.breadcrumb("nav", url)
             tabManager.updateTab(tabId) { it.copy(url = url) }
+            // 页面已换：朗读的正文与阅读模式的排版都不再对应当前页
+            pageReader.stop()
+            _isReadingMode.value = false
         }
         engine.onExternalLinkListener = { uri -> openExternal(uri) }
         engine.onCreateWindow = {
@@ -500,8 +529,60 @@ class BrowserViewModel @Inject constructor(
         }
     }
 
+    /** ===== 网页朗读 / 适应屏幕 / 阅读模式 ===== */
+
+    /** 朗读状态；null 表示未在朗读，UI 不显示控制条 */
+    val readingState: StateFlow<ReadingState?> = pageReader.state
+
+    /** 菜单「网页朗读」：未朗读则读当前页面正文，正在朗读则停止 */
+    fun toggleReadAloud() {
+        if (pageReader.state.value != null) {
+            pageReader.stop()
+            return
+        }
+        val engine = tabManager.getActiveEngine() ?: return
+        pageReader.readPage(engine, uiState.value.title.ifEmpty { uiState.value.activeUrl })
+    }
+
+    fun pauseReadAloud() = pageReader.pause()
+
+    fun resumeReadAloud() = pageReader.resume()
+
+    fun stopReadAloud() = pageReader.stop()
+
+    /**
+     * 菜单「适应屏幕」：在 适应屏幕 / 电脑版 之间切换排版。
+     * viewport 变更要重载才生效，由引擎内部完成重载。
+     */
+    fun setFitScreen(enabled: Boolean) {
+        tabManager.getActiveEngine()?.setFitScreen(enabled)
+    }
+
+    /**
+     * 菜单「阅读模式」：注入脚本把正文重排为干净排版。
+     *
+     * 退出只能靠重载页面 —— 原 DOM 已被整体替换，没有更可靠的还原方式。
+     */
     fun toggleReadingMode() {
-        _isReadingMode.value = !_isReadingMode.value
+        val engine = tabManager.getActiveEngine() ?: return
+        if (_isReadingMode.value) {
+            _isReadingMode.value = false
+            engine.reload()
+            return
+        }
+        // 朗读读的是原页面正文，进阅读模式前先停掉，免得读到已被替换的 DOM
+        pageReader.stop()
+        ReadingMode.inject(engine) { ok ->
+            _isReadingMode.value = ok
+            if (!ok) {
+                Toast.makeText(context, "未能提取到正文，暂不支持阅读模式", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    override fun onCleared() {
+        pageReader.release()
+        super.onCleared()
     }
 
     fun toggleBookmark() {
@@ -546,6 +627,8 @@ class BrowserViewModel @Inject constructor(
     }
 
     fun switchTab(tabId: String) {
+        // 切换标签：朗读停止（新标签的正文与旧标签无关）
+        pageReader.stop()
         tabManager.switchTab(tabId)
     }
 

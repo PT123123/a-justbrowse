@@ -34,7 +34,9 @@ data class EngineSnapshot(
     val canGoBack: Boolean,
     val canGoForward: Boolean,
     val isLoading: Boolean,
-    val errorCode: Int?
+    val errorCode: Int?,
+    /** 当前标签是否处于「适应屏幕」排版（false = 电脑版） */
+    val fitScreen: Boolean = true
 )
 
 private data class NavigationState(
@@ -132,6 +134,8 @@ class TabManager @Inject constructor(
                 isLoading = nav.isLoading,
                 errorCode = nav.errorCode
             )
+        }.combine(engine.fitScreen) { snapshot, fitScreen ->
+            snapshot.copy(fitScreen = fitScreen)
         }
     }
 

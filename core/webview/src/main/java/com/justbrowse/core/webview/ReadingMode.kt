@@ -11,10 +11,18 @@ object ReadingMode {
 
     /**
      * 注入阅读模式脚本。先尝试提取正文，成功则替换页面内容。
+     *
+     * @param onResult true = 已进入阅读模式；false = 未提取到正文（页面过短或框架壳站点）
      */
-    fun inject(engine: ScriptInjectTarget, onActivated: () -> Unit) {
+    fun inject(engine: ScriptInjectTarget, onResult: (Boolean) -> Unit) {
         val script = """
             (function() {
+                // GM_Bridge 缺失时不能让异常冒泡——整个 IIFE 会直接失败，永远返回不了结果
+                function log(msg) {
+                    if (window.GM_Bridge && GM_Bridge.log) { GM_Bridge.log(msg); }
+                    else if (window.console) { console.log(msg); }
+                }
+
                 // 简化版 Readability：选择最可能包含正文的容器
                 function extractArticle() {
                     var candidates = [];
@@ -40,8 +48,20 @@ object ReadingMode {
 
                 var content = extractArticle();
                 if (!content) {
-                    GM_Bridge.log('ReadingMode: no article found');
+                    log('ReadingMode: no article found');
                     return 'NO_CONTENT';
+                }
+
+                // SPA 保护：React/Vue 站点整体替换 DOM 会摧毁框架上下文，容易白屏。
+                // 只有「框架根节点存在且正文极短」才判定为壳站点，正常长文不受影响。
+                var frameworkRoot = document.querySelector('#root, #__next, #app, [data-reactroot]');
+                if (frameworkRoot) {
+                    var probe = document.createElement('div');
+                    probe.innerHTML = content;
+                    if ((probe.innerText || '').length < 500) {
+                        log('ReadingMode: framework shell detected');
+                        return 'NO_CONTENT';
+                    }
                 }
 
                 // 获取页面标题
@@ -92,7 +112,7 @@ object ReadingMode {
                 </head>
                 <body>
                     <div class="reading-mode-banner">
-                        📖 Reading Mode · <a href="${'$'}{originUrl}">Original</a>
+                        📖 阅读模式 · <a href="${'$'}{originUrl}">查看原网页</a>
                     </div>
                     <article>${'$'}{content}</article>
                 </body>
@@ -104,9 +124,7 @@ object ReadingMode {
 
         engine.evaluateJavascript(script) { result: String? ->
             Log.d("ReadingMode", "Result: $result")
-            if (result?.contains("OK") == true) {
-                onActivated()
-            }
+            onResult(result?.contains("OK") == true)
         }
     }
 }

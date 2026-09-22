@@ -32,8 +32,9 @@ private val Context.spaceDataStore: DataStore<Preferences> by preferencesDataSto
 /**
  * [SpaceController] 的 DataStore 实现。
  *
- * 独立空间进入凭证以「随机盐 + PBKDF2(SHA-256) 哈希」形式保存，口令明文永不落盘；
- * 当前处于哪个空间只在内存中记录 —— 每次冷启动都回到主空间，
+ * 进入独立空间默认走系统验证（锁屏密码 / 生物识别，见 UI 层），本类只负责
+ * 「设备没有锁屏凭据」时的 PIN 兜底凭证：以「随机盐 + PBKDF2(SHA-256) 哈希」形式保存，
+ * 口令明文永不落盘；当前处于哪个空间只在内存中记录 —— 每次冷启动都回到主空间，
  * 保证进入前必然触发验证。
  */
 @Singleton
@@ -72,7 +73,7 @@ class SpaceControllerImpl @Inject constructor(
 
     override suspend fun unlockAndEnterPrivateSpace(pin: String?): Boolean {
         if (pin == null) {
-            // 生物识别已由 UI 层验证通过
+            // 系统验证（锁屏密码 / 生物识别）已由 UI 层完成
             _currentSpace.value = SpaceId.PRIVATE
             return true
         }

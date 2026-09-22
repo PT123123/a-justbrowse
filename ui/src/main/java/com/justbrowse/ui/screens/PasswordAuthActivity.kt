@@ -14,12 +14,12 @@ import java.util.concurrent.Executor
  * 密码管理器的锁屏验证门（透明 Activity）。
  *
  * 为什么单独建这个 Activity：系统 BiometricPrompt 接口要求宿主是
- * FragmentActivity，而主浏览器 MainActivity 是 ComponentActivity
+ * FragmentActivity，主浏览器 MainActivity 是 ComponentActivity
  * （Compose 的 BackHandler 依赖它的 OnBackPressedDispatcher），不能改基类。
  * 所以由本透明 Activity 专门承载系统验证流程，结果经 setResult 返回。
  *
- * 验证方式（全部走系统接口）：
- * - Android 11+（API 30）：仅锁屏凭据（PIN/图案/密码），与用户需求一致；
+ * 验证方式（全部走系统接口，默认生物识别，可回落到锁屏凭据）：
+ * - Android 11+（API 30）：生物识别或锁屏凭据（PIN/图案/密码），系统优先弹生物识别；
  * - Android 9/10（API 28/29）：锁屏凭据或生物识别（该组合在旧版本上映射为
  *   setDeviceCredentialAllowed）；
  * - 设备未设置锁屏凭据时无法验证，直接放行并在 extra 中注明。
@@ -51,7 +51,7 @@ class PasswordAuthActivity : FragmentActivity() {
         // 提示框文案
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
             .setTitle("解锁密码管理器")
-            .setSubtitle("验证锁屏密码以查看保存的账号密码")
+            .setSubtitle("验证生物识别或锁屏密码以查看保存的账号密码")
             .setAllowedAuthenticators(allowedAuthenticators())
             .setConfirmationRequired(false)
             .build()
@@ -76,11 +76,12 @@ class PasswordAuthActivity : FragmentActivity() {
 
     private fun allowedAuthenticators(): Int =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // 仅锁屏凭据（PIN/图案/密码）
-            BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            // 生物识别优先，系统弹窗内可切换到锁屏凭据（PIN/图案/密码）
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
         } else {
             // API 29 及以下：凭据需与生物识别组合；无生物识别时系统自动回落到凭据输入
-            BiometricManager.Authenticators.DEVICE_CREDENTIAL or
-                BiometricManager.Authenticators.BIOMETRIC_WEAK
+            BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
         }
 }

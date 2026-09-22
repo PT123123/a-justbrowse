@@ -21,6 +21,9 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import androidx.webkit.ScriptHandler
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import com.justbrowse.core.adblock.AdBlockInterceptor
 import com.justbrowse.core.scripts.ScriptInjector
 import com.justbrowse.core.scripts.ScriptInjectTarget
@@ -77,6 +80,7 @@ class BrowserEngine(
      * 是否启用强制暗色（App 暗色主题开启时由上层同步进来）。
      *
      * 实现走 [DarkModeInjector] 的 CSS 注入 + WebView 背景色，**即时生效、不需要 reload**。
+     * 新导航的白底闪烁由 [DarkModeInjector.DOCUMENT_START_JS] 在页面首次绘制前掐掉。
      *
      * 这里刻意不用 `WebSettings.setForceDark`：官方文档说明该 API 及其 `FORCE_DARK_ON`
      * 在 `targetSdkVersion >= 33` 的应用里是 no-op，而本项目 targetSdk = 34，
@@ -93,18 +97,83 @@ class BrowserEngine(
     /** 本轮加载是否已经注入过暗色样式（避免 progress 回调里反复注入/刷日志） */
     private var darkInjectedThisLoad = false
 
+    /**
+     * 是否「适应屏幕」：开启时网页按屏幕宽度排版（无横向滚动），
+     * 关闭则按站点原始排版渲染（相当于电脑版，可横向滚动）。per-tab 保存。
+     */
+    private val _fitScreen = MutableStateFlow(true)
+    val fitScreen: StateFlow<Boolean> = _fitScreen.asStateFlow()
+
+    /**
+     * 切换适应屏幕 / 电脑版排版。
+     *
+     * viewport 相关设置只在下次加载时生效，所以必须 reload —— 只改 settings 页面不会变。
+     */
+    fun setFitScreen(enabled: Boolean) {
+        if (_fitScreen.value == enabled) return
+        _fitScreen.value = enabled
+        webView?.settings?.apply {
+            useWideViewPort = enabled
+            loadWithOverviewMode = enabled
+        }
+        reload()
+    }
+
+    /** document-start 暗色脚本句柄；null = 当前未注册 */
+    private var darkStartScript: ScriptHandler? = null
+
+    /** 设备 WebView 是否支持 document-start 脚本（不支持则退回 onPageStarted 注入） */
+    private val documentStartScriptSupported: Boolean =
+        runCatching { WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) }
+            .getOrDefault(false)
+
     /** 自动填充回调的引擎标识：区分多标签，防串扰 */
     private val autofillToken: String = java.util.UUID.randomUUID().toString()
 
     /** 最近一次由 TabManager 下发的全局浏览设置（WebView 惰性创建，需暂存到 createWebView 时应用） */
     private var pendingSettings = EngineWebSettings()
 
+    /**
+     * 按当前开关注册/注销 document-start 暗色脚本。
+     *
+     * 必须早于 `loadUrl`：该 API 只对「调用返回之后才开始加载」的文档生效，而也只有它能
+     * 在页面首次绘制前把暗色样式挂上 —— 白底闪烁就是这么消掉的。
+     */
+    private fun syncDarkStartScript(wv: WebView) {
+        if (!documentStartScriptSupported) return
+        if (forceDarkMode) {
+            if (darkStartScript != null) return
+            darkStartScript = runCatching {
+                WebViewCompat.addDocumentStartJavaScript(
+                    wv,
+                    DarkModeInjector.DOCUMENT_START_JS,
+                    setOf("*")
+                )
+            }.onFailure { Log.w(TAG, "addDocumentStartJavaScript failed", it) }.getOrNull()
+        } else {
+            darkStartScript?.let { handler -> runCatching { handler.remove() } }
+            darkStartScript = null
+        }
+    }
+
+    /**
+     * 智能判定当前页面的暗色状态。
+     *
+     * 置信度直接取自 [_isLoading]：加载途中 DOM 还不完整，采样不到背景色是常态，
+     * 此时只认正面证据、判不出来就保持现状；页面加载完才允许做「保守判暗」的最终裁决。
+     * 详见 [DarkModeInjector]。
+     */
+    private fun applySmartDark() {
+        DarkModeInjector.inject(this, confident = !_isLoading.value)
+    }
+
     /** 即时生效：改背景色 + 注入/移除暗色样式。 */
     private fun applyDarkMode() {
         val wv = webView ?: return
+        syncDarkStartScript(wv)
         if (forceDarkMode) {
             wv.setBackgroundColor(DARK_BG)
-            DarkModeInjector.inject(this)
+            applySmartDark()
         } else {
             wv.setBackgroundColor(android.graphics.Color.WHITE)
             DarkModeInjector.remove(this)
@@ -190,8 +259,8 @@ class BrowserEngine(
                 javaScriptEnabled = true
                 domStorageEnabled = true
                 databaseEnabled = true
-                loadWithOverviewMode = true
-                useWideViewPort = true
+                loadWithOverviewMode = _fitScreen.value
+                useWideViewPort = _fitScreen.value
                 builtInZoomControls = true
                 displayZoomControls = false
                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
@@ -225,6 +294,8 @@ class BrowserEngine(
                 onDownloadListener?.invoke(url, userAgent, contentDisposition, mimeType, contentLength)
             }
         }
+        // 必须在首次 loadUrl 之前注册：document-start 脚本只对注册之后才开始加载的文档生效
+        syncDarkStartScript(wv)
         CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true)
         return wv
     }
@@ -254,7 +325,7 @@ class BrowserEngine(
         }
         // 打开暗色时立即注入 CSS（背景色已在 createWebView 里按当前开关设好）
         if (forceDarkMode) {
-            DarkModeInjector.inject(this)
+            applySmartDark()
         }
     }
 
@@ -325,6 +396,8 @@ class BrowserEngine(
             it.destroy()
         }
         webView = null
+        // 句柄随 WebView 一起作废，清掉以免下次 createWebView 误以为已注册
+        darkStartScript = null
     }
 
     fun onSaveInstanceState(outState: Bundle) {
@@ -482,9 +555,9 @@ class BrowserEngine(
             // 每次新导航都允许重新注入（否则同 URL 刷新/重定向后 CSS 暗色与用户脚本不会重挂）
             lastInjectedUrl = null
             darkInjectedThisLoad = false
-            // 页已开始加载：立即强制压黑压反，压掉「跳转/加载早段」的白底闪烁；
-            // 后续 progress/finished 的智能判定会决定是保留还是还原为页面自身颜色。
-            if (forceDarkMode) {
+            // 正常情况下 document-start 脚本已经在首次绘制前压黑压反（见 DarkModeInjector），
+            // 这里只是老 WebView / 注册失败时的兜底。
+            if (forceDarkMode && darkStartScript == null) {
                 DarkModeInjector.injectEarly(this@BrowserEngine)
             }
             onPageStartedListener?.invoke(url)
@@ -505,9 +578,9 @@ class BrowserEngine(
             _canGoForward.value = view.canGoForward()
             onPageFinishedListener?.invoke(url, _title.value)
             applyElementHidingCss(view, interceptor.getElementHidingCss(extractDomain(url)))
-            // 兜底再注入一次：DOM 在这一刻一定完整
+            // 兜底再注入一次：DOM 在这一刻一定完整，可以放心做最终裁决
             if (forceDarkMode) {
-                DarkModeInjector.inject(this@BrowserEngine)
+                applySmartDark()
             }
             scriptInjector.inject(this@BrowserEngine, url, UserScript.RunAt.DOCUMENT_IDLE)
             // 登录表单检测：与脚本注入同时机（JS 侧 __jb_af__ 防重）
@@ -522,7 +595,7 @@ class BrowserEngine(
          */
         override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
             if (forceDarkMode) {
-                DarkModeInjector.inject(this@BrowserEngine)
+                applySmartDark()
             }
             // SPA 登录页不会触发 onPageFinished，历史栈更新时补一次检测（JS 侧防重）
             autofill.injectDetection(this@BrowserEngine, url, autofillToken)
@@ -546,10 +619,11 @@ class BrowserEngine(
     private inner class JustBrowseWebChromeClient : WebChromeClient() {
         override fun onProgressChanged(view: WebView, newProgress: Int) {
             _progress.value = newProgress
-            // 尽早注入暗色样式：progress 刚起步时 DOM 已可用，能明显压掉白底闪一下
+            // 尽早做一次智能判定：DOM 刚可用时就能确认「白页继续反相 / 黑页撤掉反相」。
+            // 此刻页面还在加载，判定只认正面证据，不会把已经挂上的早期反相误撤掉。
             if (forceDarkMode && !darkInjectedThisLoad && newProgress >= 5) {
                 darkInjectedThisLoad = true
-                DarkModeInjector.inject(this@BrowserEngine)
+                applySmartDark()
             }
             if (newProgress in 25..35) {
                 scriptInjector.inject(

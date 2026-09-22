@@ -2,10 +2,8 @@ package com.justbrowse.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -15,28 +13,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowForward
-import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.ViewWeek
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -51,36 +36,18 @@ import androidx.compose.ui.unit.dp
 
 /**
  * v3 底部停靠栏（夸克式）：
- * 一条长地址栏胶囊（内嵌返回/刷新/安全状态/收藏按钮，前进已移至菜单）+ 标签计数按钮 + 更多菜单。
- * 点击胶囊进入搜索覆盖层；点击标签按钮展开标签面板。
+ * 一条长地址栏胶囊（内嵌返回/刷新/安全状态）+ 标签计数按钮 + 更多菜单按钮。
+ * 点击胶囊进入搜索覆盖层；点击标签按钮展开标签面板；点击更多按钮弹出底部菜单面板。
  */
 @Composable
 fun BottomDock(
     state: BrowserUiState,
-    darkMode: Boolean,
-    showMenu: Boolean,
-    inPrivateSpace: Boolean,
     onCapsuleClick: () -> Unit,
     onTabClick: () -> Unit,
     onBack: () -> Unit,
-    onForward: () -> Unit,
     onReload: () -> Unit,
     onStopLoading: () -> Unit,
     onMenuClick: () -> Unit,
-    onMenuDismiss: () -> Unit,
-    onMenuHome: () -> Unit,
-    onMenuRefresh: () -> Unit,
-    onMenuFind: () -> Unit,
-    onMenuVideoSniff: () -> Unit,
-    onMenuDark: () -> Unit,
-    onMenuBookmarks: () -> Unit,
-    onMenuHistory: () -> Unit,
-    onMenuScripts: () -> Unit,
-    onMenuDownloads: () -> Unit,
-    onMenuSync: () -> Unit,
-    onMenuPasswords: () -> Unit,
-    onMenuSettings: () -> Unit,
-    onMenuSpace: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isHome = state.activeUrl.isEmpty()
@@ -189,106 +156,9 @@ fun BottomDock(
                 }
             }
 
-            // ===== 更多菜单 =====
-            Box {
-                IconButton(onClick = onMenuClick) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "更多")
-                }
-                DropdownMenu(expanded = showMenu, onDismissRequest = onMenuDismiss) {
-                    DropdownMenuItem(
-                        text = { Text("主页") },
-                        leadingIcon = { Icon(Icons.Default.Home, contentDescription = null) },
-                        onClick = onMenuHome
-                    )
-                    DropdownMenuItem(
-                        text = {
-                            Text(if (inPrivateSpace) "独立空间 ✓" else "独立空间")
-                        },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.Lock,
-                                contentDescription = null,
-                                tint = if (inPrivateSpace) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-                            )
-                        },
-                        onClick = onMenuSpace
-                    )
-                    DropdownMenuItem(
-                        text = { Text("刷新") },
-                        leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) },
-                        onClick = onMenuRefresh
-                    )
-                    DropdownMenuItem(
-                        text = { Text("前进") },
-                        enabled = state.canGoForward,
-                        leadingIcon = { Icon(Icons.Default.ArrowForward, contentDescription = null) },
-                        onClick = onForward
-                    )
-                    DropdownMenuItem(
-                        text = { Text("页内查找") },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                        onClick = onMenuFind
-                    )
-                    DropdownMenuItem(
-                        text = { Text("视频嗅探") },
-                        leadingIcon = { Icon(Icons.Default.OndemandVideo, contentDescription = null) },
-                        onClick = onMenuVideoSniff
-                    )
-                    DropdownMenuItem(
-                        text = { Text(if (darkMode) "深色模式 ✓" else "深色模式") },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.DarkMode,
-                                contentDescription = null,
-                                tint = if (darkMode) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-                            )
-                        },
-                        onClick = onMenuDark
-                    )
-                    DropdownMenuItem(
-                        text = { Text("书签") },
-                        leadingIcon = { Icon(Icons.Default.Bookmark, contentDescription = null) },
-                        onClick = onMenuBookmarks
-                    )
-                    DropdownMenuItem(
-                        text = { Text("历史记录") },
-                        leadingIcon = { Icon(Icons.Default.History, contentDescription = null) },
-                        onClick = onMenuHistory
-                    )
-                    DropdownMenuItem(
-                        text = { Text("下载管理") },
-                        leadingIcon = { Icon(Icons.Default.Download, contentDescription = null) },
-                        onClick = onMenuDownloads
-                    )
-                    DropdownMenuItem(
-                        text = { Text("油猴脚本") },
-                        leadingIcon = { Icon(Icons.Default.Extension, contentDescription = null) },
-                        onClick = onMenuScripts
-                    )
-                    DropdownMenuItem(
-                        text = { Text("局域网同步") },
-                        leadingIcon = { Icon(Icons.Default.Sync, contentDescription = null) },
-                        onClick = onMenuSync
-                    )
-                    DropdownMenuItem(
-                        text = { Text("密码管理器") },
-                        leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
-                        onClick = onMenuPasswords
-                    )
-                    DropdownMenuItem(
-                        text = { Text("设置") },
-                        leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                        onClick = onMenuSettings
-                    )
-                }
+            // ===== 更多菜单（面板由 BrowserScreen 的 MainMenuSheet 呈现） =====
+            IconButton(onClick = onMenuClick) {
+                Icon(Icons.Default.MoreVert, contentDescription = "更多")
             }
         }
     }

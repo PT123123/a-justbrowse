@@ -1,6 +1,5 @@
 package com.justbrowse.app.ui
 
-import androidx.biometric.BiometricManager
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,36 +16,29 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 
 /**
- * 独立空间闸门：首次进入设置 PIN，之后进入需验证 PIN 或使用系统生物识别。
+ * 独立空间的应用内 PIN 闸门：首次进入设置 PIN，之后进入需验证 PIN。
+ *
+ * 只在设备没有设置锁屏凭据（PIN/图案/密码）时才会出现 —— 有锁屏时进入独立空间
+ * 直接走系统验证（锁屏密码 / 生物识别），不需要应用内自设凭证。
  */
 @Composable
 fun SpaceGateDialog(
-    gate: BrowserViewModel.SpaceGate,
+    isSetup: Boolean,
     error: String?,
     onSetupPin: (String) -> Unit,
     onUnlockPin: (String) -> Unit,
-    onBiometricUnlock: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val context = LocalContext.current
     var pin by remember { mutableStateOf("") }
 
-    val isSetup = gate == BrowserViewModel.SpaceGate.SETUP_PIN
     val title = if (isSetup) "设置独立空间 PIN" else "进入独立空间"
     val hint = if (isSetup) "设置至少 4 位 PIN" else "请输入独立空间 PIN"
     val buttonLabel = if (isSetup) "进入" else "解锁"
-
-    val biometricSupported = remember {
-        BiometricManager.from(context).canAuthenticate(
-            BiometricManager.Authenticators.BIOMETRIC_STRONG
-        ) == BiometricManager.BIOMETRIC_SUCCESS
-    }
 
     fun submit() {
         if (pin.isBlank()) return
@@ -60,7 +52,8 @@ fun SpaceGateDialog(
             Column {
                 Text(
                     text = if (isSetup) {
-                        "独立空间会单独保留浏览历史、Cookie、书签和密码，并与主空间完全隔离。请先设置一个进入密码。"
+                        "独立空间会单独保留浏览历史、Cookie、书签和密码，并与主空间完全隔离。" +
+                            "当前设备没有设置锁屏密码，请先设置一个独立空间进入 PIN。"
                     } else {
                         "独立空间的浏览数据与主空间完全隔离，验证后即可进入。"
                     },
@@ -79,12 +72,6 @@ fun SpaceGateDialog(
                     supportingText = error?.let { { Text(it) } },
                     modifier = Modifier.fillMaxWidth()
                 )
-                if (!isSetup && biometricSupported) {
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = onBiometricUnlock, modifier = Modifier.fillMaxWidth()) {
-                        Text("使用系统指纹/面部识别解锁")
-                    }
-                }
             }
         },
         confirmButton = {
