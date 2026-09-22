@@ -69,6 +69,22 @@ class TabManager @Inject constructor(
     private var latestEngineSettings = EngineWebSettings()
 
     /**
+     * window.open 弹出的授权窗标签（第三方登录常用）。
+     * 它刚创建时 URL 还是 about:blank，不能被当成「主页」——否则 UI 会去挂主屏、
+     * 不给授权窗挂 WebView，弹窗内容就永远加载不出来。故单独记一份 id。
+     */
+    private val popupTabIds = MutableStateFlow<Set<String>>(emptySet())
+
+    /** 授权窗标签 → 打开它的标签，用于 window.close() 后回到原页面 */
+    private val popupOpeners = mutableMapOf<String, String>()
+
+    /** 当前活动标签是否为 window.open 授权窗（供 UI 判断此时不能显示主屏） */
+    val activeIsPopupWindow: StateFlow<Boolean> =
+        combine(_activeTabId, popupTabIds) { id, popups ->
+            id != null && id in popups
+        }.stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, false)
+
+    /**
      * 外部协议（taobao://、intent:// 等）的处理器，由上层（BrowserViewModel）注入。
      * TabManager 不关心具体怎么唤起别的 App，只负责把它挂到每个新建的引擎上。
      */
@@ -130,6 +146,9 @@ class TabManager @Inject constructor(
     /** 销毁旧空间的引擎，并按当前空间从数据库重建标签与会话 */
     private suspend fun rebuildForSpace() {
         engines.keys.toList().forEach { id -> engines.remove(id)?.destroy() }
+        // 授权窗属于旧空间的会话，切换空间后一并作废
+        popupTabIds.value = emptySet()
+        popupOpeners.clear()
         val persisted = tabRepository.observeTabs().first()
         if (persisted.isEmpty()) {
             _tabs.value = emptyList()
@@ -184,6 +203,7 @@ class TabManager @Inject constructor(
 
     /** 同步创建新标签页并返回其 Engine（供 onCreateWindow 使用） */
     fun createTabForNewWindow(): BrowserEngine? {
+        val openerId = _activeTabId.value
         val now = System.currentTimeMillis()
         val tab = Tab(
             id = java.util.UUID.randomUUID().toString(),
@@ -195,12 +215,36 @@ class TabManager @Inject constructor(
         )
         _tabs.value = _tabs.value.map { it.copy(isActive = false) } + tab
         _activeTabId.value = tab.id
+        popupTabIds.value = popupTabIds.value + tab.id
+        openerId?.let { popupOpeners[tab.id] = it }
         scope.launch {
             tabRepository.saveTab(tab)
             tabRepository.setActiveTab(tab.id)
         }
-        return getEngine(tab.id)
+        return getEngine(tab.id)?.also { engine ->
+            // 授权窗页面完成授权后调用 window.close() 是标准收尾：关掉这个标签并回到原页面
+            engine.onCloseWindowRequested = { closePopupWindow(tab.id) }
+        }
     }
+
+    /**
+     * 关闭 window.open 授权窗标签并回到打开它的标签。
+     * 页面调用 window.close() 时触发（WebChromeClient.onCloseWindow）。
+     */
+    private fun closePopupWindow(tabId: String) {
+        if (tabId !in popupTabIds.value) return
+        val opener = popupOpeners[tabId]
+        // closeTab 内部会清掉「授权窗」标记；先关标签再切回原标签，避免中途又落到弹窗上
+        closeTab(tabId)
+        opener?.takeIf { id -> _tabs.value.any { it.id == id } }?.let { switchTab(it) }
+    }
+
+    /** 清掉某个标签的「授权窗」标记（关闭标签 / 切换空间时都要清） */
+    private fun forgetPopup(tabId: String) {
+        if (tabId in popupTabIds.value) popupTabIds.value = popupTabIds.value - tabId
+        popupOpeners.remove(tabId)
+    }
+
     fun switchTab(tabId: String) {
         if (_tabs.value.none { it.id == tabId }) return
         _activeTabId.value = tabId
@@ -216,6 +260,8 @@ class TabManager @Inject constructor(
         val current = _tabs.value
         val idx = current.indexOfFirst { it.id == tabId }
         if (idx < 0) return
+        // 用户手动关掉授权窗标签时也要把标记清掉，避免「授权窗」状态残留
+        forgetPopup(tabId)
 
         // 关闭最后一个标签：不退出应用，重置为一个全新的空白标签（回到主页）。
         // 之前这里是 `if (current.size <= 1) return` ——「关到最后一个就关不掉」的根因。
