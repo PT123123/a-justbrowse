@@ -12,6 +12,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.justbrowse.app.VideoPlayerActivity
+import com.justbrowse.data.crash.CrashLogger
 import com.justbrowse.core.scripts.ScriptInjector
 import com.justbrowse.core.webview.BrowserEngine
 import com.justbrowse.core.webview.SniffedVideo
@@ -57,7 +58,14 @@ data class BrowserUiState(
     val canGoForward: Boolean = false,
     val isLoading: Boolean = false,
     val hasError: Boolean = false,
-    val showFindInPage: Boolean = false
+    val showFindInPage: Boolean = false,
+    /**
+     * 当前标签是不是 `window.open` 弹出的授权窗。
+     *
+     * 第三方登录的授权窗刚创建时 URL 还是 about:blank，但它是真实页面而不是主页：
+     * UI 必须照常挂 WebView，否则授权窗内容永远加载不出来（登录直接卡死）。
+     */
+    val isPopupWindow: Boolean = false
 )
 
 @HiltViewModel
@@ -82,8 +90,9 @@ class BrowserViewModel @Inject constructor(
         tabManager.tabs,
         tabManager.activeTabId,
         tabManager.activeEngineSnapshot,
+        tabManager.activeIsPopupWindow,
         _showFindInPageInternal
-    ) { tabs, activeTabId, snapshot, showFind ->
+    ) { tabs, activeTabId, snapshot, isPopupWindow, showFind ->
         val activeTab = activeTabId?.let { id -> tabs.firstOrNull { it.id == id } }
         BrowserUiState(
             tabs = tabs,
@@ -96,7 +105,8 @@ class BrowserViewModel @Inject constructor(
             canGoForward = snapshot?.canGoForward ?: false,
             isLoading = snapshot?.isLoading ?: false,
             hasError = snapshot?.errorCode != null,
-            showFindInPage = showFind
+            showFindInPage = showFind,
+            isPopupWindow = isPopupWindow
         )
     }.stateIn(
         scope = viewModelScope,
@@ -153,6 +163,7 @@ class BrowserViewModel @Inject constructor(
 
     /** 用自家播放器播放嗅探到的视频（不依赖网页播放器） */
     fun playSniffedVideo(video: SniffedVideo) {
+        CrashLogger.breadcrumb("video", video.url)
         val intent = VideoPlayerActivity.intent(context, video.url, video.displayName, video.poster)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         try {
@@ -356,10 +367,12 @@ class BrowserViewModel @Inject constructor(
             tabManager.updateTab(tabId) { it.copy(title = title, url = url) }
         }
         engine.onPageStartedListener = { url ->
+            CrashLogger.breadcrumb("nav", url)
             tabManager.updateTab(tabId) { it.copy(url = url) }
         }
         engine.onExternalLinkListener = { uri -> openExternal(uri) }
         engine.onCreateWindow = {
+            CrashLogger.breadcrumb("popup", "window.open 授权/弹窗")
             tabManager.createTabForNewWindow()
         }
         engine.onDownloadListener = { url, userAgent, contentDisposition, mimeType, contentLength ->
@@ -451,6 +464,7 @@ class BrowserViewModel @Inject constructor(
      */
     fun openExternal(uri: Uri) {
         val raw = uri.toString()
+        CrashLogger.breadcrumb("external", raw)
         val scheme = uri.scheme?.lowercase()
 
         if (scheme == "intent" || scheme == "android-app") {

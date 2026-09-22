@@ -141,6 +141,14 @@ class BrowserEngine(
     /** 新窗口请求回调：返回新标签页的 Engine */
     var onCreateWindow: (() -> BrowserEngine?)? = null
 
+    /**
+     * 页面调用 `window.close()` 请求关闭当前窗口。
+     *
+     * 只挂在 window.open 出来的授权窗引擎上（见 TabManager.createTabForNewWindow）：
+     * 第三方登录在授权完成后用 `window.close()` 收尾，浏览器要把这个标签关掉并回到原页面。
+     */
+    var onCloseWindowRequested: (() -> Unit)? = null
+
     /** 视频全屏（WebChromeClient.onShowCustomView）回调：由 UI 层挂载全屏容器 */
     var onShowCustomView: ((view: View, callback: WebChromeClient.CustomViewCallback) -> Unit)? = null
 
@@ -193,7 +201,7 @@ class BrowserEngine(
                 javaScriptCanOpenWindowsAutomatically = true
                 cacheMode = WebSettings.LOAD_DEFAULT
                 setOffscreenPreRaster(true)
-                userAgentString = "$userAgentString JustBrowse/0.1"
+                userAgentString = browserUserAgent(context)
                 allowFileAccess = true
                 CookieManager.getInstance().setAcceptCookie(true)
             }
@@ -257,6 +265,8 @@ class BrowserEngine(
     fun loadUrl(url: String) {
         _url.value = url
         _errorCode.value = null
+        // DNT 只能这样带：App 自己发起的加载（地址栏/书签/历史/GM_openInTab）没有 Referer
+        // 可丢，带上请求头是安全的；网页内部的导航不能这么重发（会丢 Referer 破坏登录）。
         if (pendingSettings.doNotTrack) {
             webView?.loadUrl(url, dntHeaders())
         } else {
@@ -382,6 +392,20 @@ class BrowserEngine(
 
     private fun dntHeaders(): Map<String, String> = mapOf("DNT" to "1", "Sec-GPC" to "1")
 
+    /**
+     * 以「普通手机浏览器」的身份上报 UA。
+     *
+     * WebView 默认 UA 里带两处自曝标记：`; wv)` 与 `Version/4.0`。
+     * Google 账号登录见到它们会直接返回 `disallowed_useragent`，不少站点也会据此
+     * 隐藏第三方登录入口或降级页面。浏览器本就该以浏览器身份出现，这里去掉这两个标记，
+     * 只保留自家标识。
+     */
+    private fun browserUserAgent(context: Context): String =
+        WebSettings.getDefaultUserAgent(context)
+            .replace("; wv)", ")")
+            .replace(" Version/4.0", "")
+            .trim() + " JustBrowse/0.1"
+
     private fun extractDomain(url: String): String {
         return url.removePrefix("http://")
             .removePrefix("https://")
@@ -430,22 +454,10 @@ class BrowserEngine(
                 view.post { onDirectVideo?.invoke(videoUrl) }
                 return true
             }
-            // DNT 请求头无法全局注入：仅对主文档的 GET 导航重新派发带上请求头。
-            // 必须跳过重定向与 POST：
-            //  - 重定向链（OAuth 回调 / 302 链）重新派发会丢表单数据、破坏登录流程，
-            //    第三方登录「重定向后不跳转」就是这个导致的（DNT 默认开启）；
-            //  - POST（表单提交）重新派发会变成 GET，登录表单直接失效。
-            // 与视频分支同理：不能在这个原生导航回调里同步 loadUrl（会造成导航重入，
-            // 在部分系统 WebView 上触发 native SIGTRAP 崩溃），延迟到主线程下一轮执行。
-            if (request.isForMainFrame && pendingSettings.doNotTrack &&
-                !request.isRedirect &&
-                request.method.equals("GET", ignoreCase = true) &&
-                uri.scheme in setOf("http", "https")
-            ) {
-                val target = uri.toString()
-                view.post { view.loadUrl(target, dntHeaders()) }
-                return true
-            }
+            // 这里**不做**任何重派发：曾经为了给主文档注入 DNT 请求头，把「主框架 + GET +
+            // 非重定向」的导航取消掉再 loadUrl 重发一次，结果新请求不带 Referer —— 微信/QQ
+            // 这类授权页是按 Referer 域名校验来源的，缺了就直接拒绝，第三方登录因此登不进去。
+            // DNT 改由 App 自己发起的加载带上（见 loadUrl），网页内部的导航一律原样放行。
             return false
         }
 
@@ -566,6 +578,15 @@ class BrowserEngine(
         override fun onHideCustomView() {
             customViewCallback = null
             onHideCustomView?.invoke()
+        }
+
+        /** 授权窗页面 window.close()：通知上层关掉这个标签并回到打开它的页面 */
+        override fun onCloseWindow(window: WebView) {
+            if (window === webView) {
+                onCloseWindowRequested?.invoke()
+            } else {
+                super.onCloseWindow(window)
+            }
         }
 
         override fun onCreateWindow(

@@ -44,6 +44,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val settings by viewModel.settings.collectAsState()
+    val crashLogSummary by viewModel.crashLogSummary.collectAsState()
     var showThemeDialog by remember { mutableStateOf(false) }
     var showSearchDialog by remember { mutableStateOf(false) }
     var showClearDialog by remember { mutableStateOf(false) }
@@ -150,6 +151,13 @@ fun SettingsScreen(
                     title = "版本",
                     subtitle = "JustBrowse 0.1.0",
                     onClick = {}
+                )
+            }
+            item {
+                SettingsItem(
+                    title = "导出崩溃日志",
+                    subtitle = crashLogSummary ?: "暂无记录（闪退时自动记录）",
+                    onClick = viewModel::exportCrashLog
                 )
             }
         }

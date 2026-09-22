@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 可分享的目录：目前只有闪退日志（「设置 → 导出崩溃日志」用） -->
+<paths>
+    <!-- 主路径：外部私有目录 /sdcard/Android/data/<包名>/files/crash/ -->
+    <external-files-path
+        name="crash"
+        path="crash/" />
+    <!-- 兜底：外部目录不可用时 CrashLogger 会退到内部 files/crash/ -->
+    <files-path
+        name="crash_internal"
+        path="crash/" />
+</paths>

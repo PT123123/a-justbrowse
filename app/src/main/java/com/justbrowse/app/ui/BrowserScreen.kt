@@ -121,7 +121,10 @@ fun BrowserScreen(
         }
     }
 
-    val isHome = state.activeUrl.isEmpty()
+    // 主页判定：URL 为空且不是 window.open 授权窗。
+    // 授权窗刚创建时也是 about:blank，若按「URL 空 = 主页」处理，UI 会去挂主屏、
+    // 不给授权窗挂 WebView —— 第三方登录的授权页就永远加载不出来。
+    val isHome = state.activeUrl.isEmpty() && !state.isPopupWindow
 
     // 书签/历史页点击的 URL 经 savedStateHandle 带回来，回到本屏后打开
     LaunchedEffect(awaitingUrl) {
