@@ -1,6 +1,7 @@
 package com.justbrowse.app.ui
 
 import android.app.Activity
+import android.os.Build
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -97,9 +98,11 @@ fun BrowserScreen(
     val saveCandidate by viewModel.saveCandidate.collectAsState()
     val sniffedVideos by viewModel.sniffedVideos.collectAsState()
     val videoSheetVisible by viewModel.videoSheetVisible.collectAsState()
-    val spaceGate by viewModel.spaceGate.collectAsState()
+    val spaceAuth by viewModel.spaceAuth.collectAsState()
     val spaceError by viewModel.spaceError.collectAsState()
     val inPrivateSpace by viewModel.inPrivateSpace.collectAsState()
+    val isReadingMode by viewModel.isReadingMode.collectAsState()
+    val readingState by viewModel.readingState.collectAsState()
     val awaitingUrl by pendingUrl.collectAsState()
 
     var showTabSheet by remember { mutableStateOf(false) }
@@ -137,21 +140,22 @@ fun BrowserScreen(
 
     // 系统返回键：先收起浮层，再网页后退（退不出则回主页）；
     // 首页不拦截，交还系统（退出应用）。
-    BackHandler(enabled = showSearchOverlay || showTabSheet || showMenu || showDarkModeDialog || state.showFindInPage) {
+    // 注意：底部菜单面板（ModalBottomSheet）自带返回键收起，这里不接管 showMenu，
+    // 否则外层 BackHandler 会抢在面板前面把返回键吃掉。
+    BackHandler(enabled = showSearchOverlay || showTabSheet || showDarkModeDialog || state.showFindInPage) {
         when {
             showSearchOverlay -> {
                 showSearchOverlay = false
                 viewModel.hideSuggestions()
             }
             showTabSheet -> showTabSheet = false
-            showMenu -> showMenu = false
             showDarkModeDialog -> showDarkModeDialog = false
             state.showFindInPage -> viewModel.hideFindInPage()
         }
     }
     if (!isHome) {
         BackHandler(
-            enabled = !showSearchOverlay && !showTabSheet && !showMenu && !showDarkModeDialog && !state.showFindInPage
+            enabled = !showSearchOverlay && !showTabSheet && !showDarkModeDialog && !state.showFindInPage
         ) {
             val engine = state.activeTab?.id?.let { viewModel.getEngine(it) }
             if (engine?.goBack() != true) viewModel.goHome()
@@ -348,74 +352,112 @@ fun BrowserScreen(
 
         }
 
+        // ===== 朗读控制条（浮在停靠栏上方，仅在朗读时出现） =====
+        readingState?.let { reading ->
+            ReadingBar(
+                title = reading.title,
+                index = reading.index,
+                total = reading.total,
+                isPaused = reading.isPaused,
+                onToggle = {
+                    if (reading.isPaused) viewModel.resumeReadAloud() else viewModel.pauseReadAloud()
+                },
+                onStop = viewModel::stopReadAloud
+            )
+        }
+
         // ===== 底部停靠栏（常驻在内容区之下，不再压住网页） =====
         BottomDock(
             state = state,
-            darkMode = darkMode,
-            showMenu = showMenu,
-            inPrivateSpace = inPrivateSpace,
             onCapsuleClick = { showSearchOverlay = true },
             onTabClick = { showTabSheet = true },
             onBack = viewModel::goBack,
-            onForward = viewModel::goForward,
             onReload = viewModel::reload,
             onStopLoading = viewModel::stopLoading,
-            onMenuClick = { showMenu = true },
-            onMenuDismiss = { showMenu = false },
-            onMenuHome = {
-                showMenu = false
-                viewModel.goHome()
-            },
-            onMenuRefresh = {
-                showMenu = false
-                viewModel.reload()
-            },
-            onMenuFind = {
-                showMenu = false
-                viewModel.showFindInPage()
-            },
-            onMenuVideoSniff = {
-                showMenu = false
-                viewModel.showVideoSheet()
-            },
-            onMenuDark = {
-                showMenu = false
-                showDarkModeDialog = true
-            },
-            onMenuBookmarks = {
-                showMenu = false
-                onNavigateToBookmarks()
-            },
-            onMenuHistory = {
-                showMenu = false
-                onNavigateToHistory()
-            },
-            onMenuScripts = {
-                showMenu = false
-                onNavigateToScripts()
-            },
-            onMenuDownloads = {
-                showMenu = false
-                onNavigateToDownloads()
-            },
-            onMenuSync = {
-                showMenu = false
-                onNavigateToSync()
-            },
-            onMenuPasswords = {
-                showMenu = false
-                onNavigateToPasswords()
-            },
-            onMenuSettings = {
-                showMenu = false
-                onNavigateToSettings()
-            },
-            onMenuSpace = {
-                showMenu = false
-                viewModel.toggleSpace()
-            }
+            onMenuClick = { showMenu = true }
         )
     }
+
+        // ===== 底部菜单面板（堆叠式，从下往上滑出） =====
+        if (showMenu) {
+            MainMenuSheet(
+                canGoForward = state.canGoForward,
+                darkMode = darkMode,
+                fitScreen = state.fitScreen,
+                readingMode = isReadingMode,
+                readingAloud = readingState != null,
+                inPrivateSpace = inPrivateSpace,
+                onDismiss = { showMenu = false },
+                onHome = {
+                    showMenu = false
+                    viewModel.goHome()
+                },
+                onRefresh = {
+                    showMenu = false
+                    viewModel.reload()
+                },
+                onForward = {
+                    showMenu = false
+                    viewModel.goForward()
+                },
+                onFind = {
+                    showMenu = false
+                    viewModel.showFindInPage()
+                },
+                onReadAloud = {
+                    showMenu = false
+                    viewModel.toggleReadAloud()
+                },
+                onFitScreen = {
+                    showMenu = false
+                    viewModel.setFitScreen(!state.fitScreen)
+                },
+                onReadingMode = {
+                    showMenu = false
+                    viewModel.toggleReadingMode()
+                },
+                onDark = {
+                    showMenu = false
+                    showDarkModeDialog = true
+                },
+                onVideoSniff = {
+                    showMenu = false
+                    viewModel.showVideoSheet()
+                },
+                onSpace = {
+                    showMenu = false
+                    viewModel.toggleSpace()
+                },
+                onBookmarks = {
+                    showMenu = false
+                    onNavigateToBookmarks()
+                },
+                onHistory = {
+                    showMenu = false
+                    onNavigateToHistory()
+                },
+                onDownloads = {
+                    showMenu = false
+                    onNavigateToDownloads()
+                },
+                onScripts = {
+                    showMenu = false
+                    onNavigateToScripts()
+                },
+                onSync = {
+                    showMenu = false
+                    onNavigateToSync()
+                },
+                onPasswords = {
+                    showMenu = false
+                    onNavigateToPasswords()
+                },
+                onSettings = {
+                    showMenu = false
+                    onNavigateToSettings()
+                }
+            )
+        }
 
         // ===== 视频全屏层：浮在所有 UI（含底部停靠栏）之上，默认 GONE =====
         AndroidView(
@@ -519,27 +561,43 @@ fun BrowserScreen(
         )
     }
 
-    // ===== 独立空间闸门（进入前设置/验证 PIN，或用生物识别解锁） =====
-    spaceGate?.let { gate ->
-        SpaceGateDialog(
-            gate = gate,
-            error = spaceError,
-            onSetupPin = viewModel::setupPrivatePin,
-            onUnlockPin = viewModel::unlockPrivatePin,
-            onBiometricUnlock = {
-                (context as? FragmentActivity)?.let { fa ->
-                    launchBiometricUnlock(fa, viewModel::unlockPrivateViaBiometric)
-                }
-            },
-            onDismiss = viewModel::cancelSpaceGate
-        )
+    // ===== 独立空间：设备有锁屏凭据时直接唤起系统验证（锁屏密码 / 生物识别） =====
+    LaunchedEffect(spaceAuth) {
+        if (spaceAuth != BrowserViewModel.SpaceAuth.SYSTEM) return@LaunchedEffect
+        val host = context as? FragmentActivity
+        if (host == null) {
+            viewModel.onSystemAuthCancelled()
+            return@LaunchedEffect
+        }
+        launchSpaceAuth(host) { ok ->
+            if (ok) viewModel.onSystemAuthSucceeded() else viewModel.onSystemAuthCancelled()
+        }
+    }
+
+    // ===== 独立空间 PIN 兜底弹窗（仅在设备没有锁屏凭据时出现） =====
+    when (spaceAuth) {
+        BrowserViewModel.SpaceAuth.PIN_SETUP, BrowserViewModel.SpaceAuth.PIN_UNLOCK -> {
+            SpaceGateDialog(
+                isSetup = spaceAuth == BrowserViewModel.SpaceAuth.PIN_SETUP,
+                error = spaceError,
+                onSetupPin = viewModel::setupPrivatePin,
+                onUnlockPin = viewModel::unlockPrivatePin,
+                onDismiss = viewModel::cancelSpaceAuth
+            )
+        }
+        else -> Unit
     }
 }
 
-/** 生物识别验证通过后进入独立空间（失败/取消由系统弹窗自行处理）。 */
-private fun launchBiometricUnlock(
+/**
+ * 唤起系统验证进入独立空间：锁屏密码（PIN/图案/密码）或生物识别。
+ *
+ * 允许的验证方式随系统版本不同 —— 含锁屏凭据时不能设 negativeButton，
+ * 取消入口由系统凭据界面自己提供。
+ */
+private fun launchSpaceAuth(
     fragmentActivity: FragmentActivity,
-    onSucceeded: () -> Unit
+    onResult: (Boolean) -> Unit
 ) {
     val executor = ContextCompat.getMainExecutor(fragmentActivity)
     val prompt = BiometricPrompt(
@@ -547,15 +605,28 @@ private fun launchBiometricUnlock(
         executor,
         object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                onSucceeded()
+                onResult(true)
+            }
+
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                onResult(false)
             }
         }
     )
+    val authenticators =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            BiometricManager.Authenticators.DEVICE_CREDENTIAL or
+                BiometricManager.Authenticators.BIOMETRIC_STRONG
+        } else {
+            // API 29 及以下：凭据必须与生物识别组合，系统会在无生物识别时回落到凭据输入
+            BiometricManager.Authenticators.DEVICE_CREDENTIAL or
+                BiometricManager.Authenticators.BIOMETRIC_WEAK
+        }
     val info = BiometricPrompt.PromptInfo.Builder()
-        .setTitle("验证身份")
-        .setSubtitle("验证后进入独立空间")
-        .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
-        .setNegativeButtonText("取消")
+        .setTitle("进入独立空间")
+        .setSubtitle("验证锁屏密码或生物识别")
+        .setAllowedAuthenticators(authenticators)
+        .setConfirmationRequired(false)
         .build()
     prompt.authenticate(info)
 }
