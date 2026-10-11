@@ -8,6 +8,9 @@ import kotlinx.coroutines.flow.StateFlow
 interface SyncController {
     val state: StateFlow<SyncState>
 
+    /** 当前服务端实际校验的配对码；未启动服务时为 null（UI 展示必须用这个，避免展示码 ≠ 校验码） */
+    val serverPairingCode: String?
+
     /** 启动发送端 HTTP Server */
     suspend fun startServer(port: Int = 8765)
 

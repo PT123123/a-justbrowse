@@ -3,7 +3,10 @@ package com.justbrowse.core.sync
 import android.content.Context
 import android.provider.Settings
 import com.justbrowse.data.prefs.SettingsDataStore
+import com.justbrowse.domain.model.Bookmark
+import com.justbrowse.domain.model.HistoryEntry
 import com.justbrowse.domain.model.PasswordEntry
+import com.justbrowse.domain.model.UserScript
 import com.justbrowse.domain.repository.BookmarkRepository
 import com.justbrowse.domain.repository.HistoryRepository
 import com.justbrowse.domain.repository.PasswordRepository
@@ -14,6 +17,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -38,6 +42,11 @@ class RealSyncController(
 
     private val _state = MutableStateFlow<SyncState>(SyncState.Idle)
     override val state: StateFlow<SyncState> = _state.asStateFlow()
+
+    /** 服务端实际校验的配对码（startServer 时生成并传给 SyncServer，UI 展示用） */
+    @Volatile
+    override var serverPairingCode: String? = null
+        private set
 
     /** 远端推送回调里的 vault 解密/合并用（PBKDF2 放 Default 避免卡 UI） */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -65,13 +74,15 @@ class RealSyncController(
     override suspend fun startServer(port: Int) {
         _state.value = SyncState.StartingServer
         val snapshotProvider = newSnapshotProvider()
+        val code = generatePairingCode()
         server = SyncServer(
             port = port,
-            pairingCode = generatePairingCode(),
+            pairingCode = code,
             snapshotProvider = snapshotProvider,
             onRemoteSnapshotReceived = { snapshot -> applyRemoteSnapshot(snapshot) }
         )
         server?.start()
+        serverPairingCode = code
         discovery.registerService(port)
         _state.value = SyncState.ServerRunning(port)
     }
@@ -80,6 +91,7 @@ class RealSyncController(
         discovery.unregisterService()
         server?.stop()
         server = null
+        serverPairingCode = null
         _state.value = SyncState.Idle
     }
 
@@ -141,16 +153,69 @@ class RealSyncController(
     )
 
     private fun applyRemoteSnapshot(snapshot: SyncSnapshot) {
-        // LWW 合并书签/历史/脚本
-        // TODO: 通过 Repository 执行合并
-        // 密码 vault：仅当远端携带且本地已配置口令时解密合并
-        val vault = snapshot.vault ?: return
-        val passphrase = vaultPassphrase
-        if (passphrase == null) {
-            _state.value = SyncState.Error("远端包含密码，请先设置密码同步口令")
-            return
-        }
         scope.launch {
+            // 1) 书签 / 历史 / 脚本：LWW 合并（远端较新或本地缺失时写入本地）
+            try {
+                val localBookmarks = bookmarkRepository.observeAll().first().map { it.toSync() }
+                val bm = LwwMerge.mergeBookmarks(localBookmarks, snapshot.bookmarks)
+                for (b in bm.toAddLocally + bm.toUpdateLocally) {
+                    bookmarkRepository.save(
+                        Bookmark(
+                            id = b.id,
+                            title = b.title,
+                            url = b.url,
+                            folder = b.folder,
+                            createdAt = b.createdAt,
+                            updatedAt = b.updatedAt
+                        )
+                    )
+                }
+
+                val localHistory = historyRepository.observeRecent(limit = 5000).first().map { it.toSync() }
+                val (historyToLocal, _) = LwwMerge.mergeHistory(localHistory, snapshot.history)
+                for (h in historyToLocal) {
+                    historyRepository.upsert(
+                        HistoryEntry(
+                            id = h.id,
+                            url = h.url,
+                            title = h.title,
+                            visitedAt = h.visitedAt,
+                            visitCount = h.visitCount
+                        )
+                    )
+                }
+
+                val localScripts = scriptRepository.observeAll().first().map { it.toSync() }
+                val (scriptsToLocal, _) = LwwMerge.mergeScripts(localScripts, snapshot.scripts)
+                for (s in scriptsToLocal) {
+                    scriptRepository.save(
+                        UserScript(
+                            id = s.id,
+                            name = s.name,
+                            namespace = s.namespace,
+                            description = s.description,
+                            version = s.version,
+                            matches = s.matches,
+                            grants = s.grants.mapNotNull { grantByName(it) }.toSet(),
+                            runAt = runAtByName(s.runAt),
+                            source = s.source,
+                            enabled = s.enabled,
+                            updatedAt = s.updatedAt
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                _state.value = SyncState.Error("书签/历史/脚本合并失败：${e.message}")
+                return@launch
+            }
+
+            // 2) 密码 vault：仅当远端携带且本地已配置口令时解密合并
+            val vault = snapshot.vault ?: return@launch
+            val passphrase = vaultPassphrase
+            if (passphrase == null) {
+                _state.value = SyncState.Error("远端包含密码，请先设置密码同步口令")
+                return@launch
+            }
             try {
                 val entries = VaultCipher.decrypt(vault, passphrase)
                 mergePasswords(entries)
@@ -160,6 +225,26 @@ class RealSyncController(
             }
         }
     }
+
+    private fun Bookmark.toSync() = BookmarkSync(
+        id = id, title = title, url = url, folder = folder, createdAt = createdAt, updatedAt = updatedAt
+    )
+
+    private fun HistoryEntry.toSync() = HistorySync(
+        id = id, url = url, title = title, visitedAt = visitedAt, visitCount = visitCount
+    )
+
+    private fun UserScript.toSync() = ScriptSync(
+        id = id, name = name, namespace = namespace, description = description,
+        version = version, matches = matches, grants = grants.map { it.name },
+        runAt = runAt.name, source = source, enabled = enabled, updatedAt = updatedAt
+    )
+
+    private fun grantByName(name: String): UserScript.Grant? =
+        runCatching { UserScript.Grant.valueOf(name) }.getOrNull()
+
+    private fun runAtByName(name: String): UserScript.RunAt =
+        runCatching { UserScript.RunAt.valueOf(name) }.getOrNull() ?: UserScript.RunAt.DOCUMENT_END
 
     /** 密码合并：同 id 按 updatedAt 新者胜（LWW），不删除本地多余条目 */
     private suspend fun mergePasswords(entries: List<PasswordSync>) {
@@ -201,6 +286,7 @@ class RealSyncController(
  */
 class NoopSyncController : SyncController {
     override val state: StateFlow<SyncState> = MutableStateFlow(SyncState.Idle)
+    override val serverPairingCode: String? = null
     override suspend fun startServer(port: Int) {}
     override suspend fun stopServer() {}
     override suspend fun startDiscovery() {}

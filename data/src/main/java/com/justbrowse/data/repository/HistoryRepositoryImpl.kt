@@ -64,6 +64,23 @@ class HistoryRepositoryImpl @Inject constructor(
         }
     }
 
+    /** 同步合并用：按 id 整体替换；快照不含 faviconUrl 时保留本地已有图标 */
+    override suspend fun upsert(entry: HistoryEntry) {
+        val dao = daoFor(spaceController.currentSpace.value)
+        val faviconUrl = entry.faviconUrl
+            ?: dao.getById(entry.id)?.faviconUrl
+        dao.insert(
+            HistoryEntity(
+                id = entry.id,
+                url = entry.url,
+                title = entry.title,
+                faviconUrl = faviconUrl,
+                visitedAt = entry.visitedAt,
+                visitCount = entry.visitCount
+            )
+        )
+    }
+
     override suspend fun delete(id: String) =
         daoFor(spaceController.currentSpace.value).delete(id)
 

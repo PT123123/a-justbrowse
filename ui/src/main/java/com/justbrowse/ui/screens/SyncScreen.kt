@@ -56,6 +56,7 @@ fun SyncScreen(
     val state by viewModel.state.collectAsState()
     val includeVault by viewModel.includeVault.collectAsState()
     val vaultPassphrase by viewModel.vaultPassphrase.collectAsState()
+    val serverPairingCode by viewModel.serverPairingCode.collectAsState()
     var pairingCode by remember { mutableStateOf("") }
 
     Scaffold(
@@ -118,7 +119,7 @@ fun SyncScreen(
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Text(
-                        "配对码：${viewModel.serverPairingCode}",
+                        "配对码：$serverPairingCode",
                         style = MaterialTheme.typography.headlineSmall,
                         color = MaterialTheme.colorScheme.primary
                     )

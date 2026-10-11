@@ -19,8 +19,9 @@ class SyncViewModel @Inject constructor(
 
     val state: StateFlow<SyncState> = syncController.state
 
-    var serverPairingCode: String = ""
-        private set
+    /** 服务端实际校验的配对码（由 controller 生成，展示用） */
+    private val _serverPairingCode = MutableStateFlow("")
+    val serverPairingCode: StateFlow<String> = _serverPairingCode.asStateFlow()
 
     /** ===== 密码 vault 同步（默认关闭，口令不持久化） ===== */
 
@@ -54,10 +55,10 @@ class SyncViewModel @Inject constructor(
 
     fun startServer() {
         viewModelScope.launch {
-            // 生成配对码（实际应由 controller 生成）
-            serverPairingCode = (100000 + (Math.random() * 900000).toInt()).toString()
             applyVaultConfig()
             syncController.startServer(8765)
+            // 展示 controller 实际生成的配对码（服务端校验的就是它）
+            _serverPairingCode.value = syncController.serverPairingCode ?: ""
         }
     }
 
